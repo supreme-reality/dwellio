@@ -24,9 +24,20 @@ Domain source of truth: [`projectDocs/v5/`](projectDocs/v5/). Do not implement f
 
 ### API (port 8080)
 
+Requires Postgres (see Docker below).
+
 ```bash
+docker compose up -d
 ./gradlew :apps:api:bootRun
 curl -s http://localhost:8080/actuator/health
+```
+
+### Postgres (Docker)
+
+```bash
+docker compose up -d
+# Host port 5433 → container 5432 (avoids clashes with other local Postgres)
+# db/user/pass: dwellio / dwellio / dwellio
 ```
 
 ### Web (port 3000)
