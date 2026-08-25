@@ -72,4 +72,19 @@ class GlobalExceptionHandlerTest {
         assertThat(response.getBody().error().requestId())
                 .isEqualTo("11111111-1111-1111-1111-111111111111");
     }
+
+    @Test
+    void malformedBodyReturnsBadRequest() {
+        ResponseEntity<ApiErrorResponse> response = handler.handleBadRequest(
+                new org.springframework.http.converter.HttpMessageNotReadableException("bad json"),
+                request
+        );
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().error().code()).isEqualTo("BAD_REQUEST");
+        assertThat(response.getBody().error().message()).isEqualTo("Malformed request");
+        assertThat(response.getBody().error().requestId())
+                .isEqualTo("11111111-1111-1111-1111-111111111111");
+    }
 }
