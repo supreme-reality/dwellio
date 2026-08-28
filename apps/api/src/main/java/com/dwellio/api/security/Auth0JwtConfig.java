@@ -30,7 +30,7 @@ public class Auth0JwtConfig {
         return decoder;
     }
 
-    static OAuth2TokenValidator<Jwt> audienceValidator(String audience) {
+    public static OAuth2TokenValidator<Jwt> audienceValidator(String audience) {
         return token -> {
             if (token.getAudience() != null && token.getAudience().contains(audience)) {
                 return OAuth2TokenValidatorResult.success();
