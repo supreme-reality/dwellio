@@ -3,6 +3,7 @@ package com.dwellio.api.common;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -66,6 +67,33 @@ public class GlobalExceptionHandler {
                 ErrorCode.VALIDATION_FAILED.name(),
                 "Validation failed",
                 details,
+                request
+        );
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiErrorResponse> handleDataIntegrity(
+            DataIntegrityViolationException ex,
+            HttpServletRequest request
+    ) {
+        String message = ex.getMostSpecificCause() != null
+                ? ex.getMostSpecificCause().getMessage()
+                : ex.getMessage();
+        if (message != null && message.contains("uq_occupancy_active_bed")) {
+            return build(
+                    HttpStatus.CONFLICT,
+                    ErrorCode.BED_UNAVAILABLE.name(),
+                    "The selected bed is no longer available.",
+                    Collections.emptyMap(),
+                    request
+            );
+        }
+        log.error("Data integrity violation requestId={}", RequestIdFilter.currentRequestId(request), ex);
+        return build(
+                HttpStatus.CONFLICT,
+                ErrorCode.CONFLICT.name(),
+                "Conflict with existing data",
+                Collections.emptyMap(),
                 request
         );
     }

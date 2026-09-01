@@ -38,4 +38,17 @@ public interface PropertyMembershipRepository extends JpaRepository<PropertyMemb
             @Param("propertyId") UUID propertyId,
             @Param("userId") UUID userId
     );
+
+    @Query("""
+            select case when count(pm) > 0 then true else false end
+            from PropertyMembershipEntity pm
+            join OrganizationMembershipEntity om on om.id = pm.organizationMembershipId
+            where om.userId = :userId
+              and om.status = 'ACTIVE'
+              and om.organizationId = :organizationId
+            """)
+    boolean existsActiveManagerAssignmentInOrg(
+            @Param("organizationId") UUID organizationId,
+            @Param("userId") UUID userId
+    );
 }

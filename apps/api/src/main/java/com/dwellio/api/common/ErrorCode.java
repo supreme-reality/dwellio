@@ -6,6 +6,7 @@ public enum ErrorCode {
     FORBIDDEN,
     NOT_FOUND,
     CONFLICT,
+    BED_UNAVAILABLE,
     VALIDATION_FAILED,
     INTERNAL_ERROR
 }
