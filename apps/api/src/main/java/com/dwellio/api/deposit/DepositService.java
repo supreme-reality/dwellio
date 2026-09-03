@@ -67,6 +67,11 @@ public class DepositService {
         return new DepositLedgerResponse(tenancyId, totals.balance(), items);
     }
 
+    @Transactional(readOnly = true)
+    public BigDecimal balanceOf(UUID tenancyId) {
+        return computeTotals(depositLedgerRepository.findByTenancyIdOrderByCreatedAtAsc(tenancyId)).balance();
+    }
+
     private TenancyEntity requireReadableTenancy(AppUserEntity user, UUID tenancyId) {
         TenancyEntity tenancy = tenancyRepository.findById(tenancyId)
                 .orElseThrow(this::notFound);
