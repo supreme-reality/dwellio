@@ -214,6 +214,84 @@ class CheckoutIT {
                 .andExpect(jsonPath("$[0].status").value("ENDED"));
     }
 
+    @Test
+    void refundPaysRemainingDeposit_andCannotOverRefund() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStay(ownerToken, "0.00");
+
+        MvcResult confirm = mockMvc.perform(post("/api/v1/checkout")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tenancyId":"%s",
+                                  "damagesAmount":1000.00
+                                }
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundDue").value(4000.00))
+                .andReturn();
+        String settlementId = com.jayway.jsonpath.JsonPath.read(
+                confirm.getResponse().getContentAsString(),
+                "$.settlementId"
+        );
+
+        mockMvc.perform(post("/api/v1/settlements/" + settlementId + "/refund")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"paymentMethod":"CASH"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.amount").value(4000.00))
+                .andExpect(jsonPath("$.depositBalanceAfter").value(0.00));
+
+        mockMvc.perform(get("/api/v1/tenancies/" + fx.tenancyId + "/deposit")
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.balance").value(0.00));
+
+        mockMvc.perform(post("/api/v1/settlements/" + settlementId + "/refund")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"paymentMethod":"CASH"}
+                                """))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void refundBlockedWhenRefundDueIsZero() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStay(ownerToken, "0.00");
+
+        MvcResult confirm = mockMvc.perform(post("/api/v1/checkout")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tenancyId":"%s",
+                                  "damagesAmount":8000.00,
+                                  "leaveReceivable":true
+                                }
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundDue").value(0.00))
+                .andReturn();
+        String settlementId = com.jayway.jsonpath.JsonPath.read(
+                confirm.getResponse().getContentAsString(),
+                "$.settlementId"
+        );
+
+        mockMvc.perform(post("/api/v1/settlements/" + settlementId + "/refund")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"paymentMethod":"CASH"}
+                                """))
+                .andExpect(status().isUnprocessableEntity());
+    }
+
     private Stay seedActiveStay(String ownerToken, String rentAmount) throws Exception {
         return seedActiveStayInternal(ownerToken, rentAmount, false);
     }

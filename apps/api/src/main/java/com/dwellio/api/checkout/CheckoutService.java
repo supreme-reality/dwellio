@@ -235,6 +235,80 @@ public class CheckoutService {
         );
     }
 
+    @Transactional
+    public SettlementRefundResponse refund(AppUserEntity user, UUID settlementId, SettlementRefundRequest request) {
+        SettlementSnapshotEntity snapshot = settlementSnapshotRepository.findById(settlementId)
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Settlement not found"));
+        TenancyEntity tenancy = tenancyRepository.findById(snapshot.getTenancyId())
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Settlement not found"));
+        propertyAccessService.requireInventoryMutator(user, tenancy.getPropertyId());
+
+        if (snapshot.getRefundDue().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ApiException(
+                    ErrorCode.VALIDATION_FAILED,
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "No refundable deposit on this settlement"
+            );
+        }
+
+        BigDecimal alreadyRefunded = depositLedgerRepository.findByTenancyIdOrderByCreatedAtAsc(tenancy.getId())
+                .stream()
+                .filter(e -> "REFUND".equals(e.getType()) && settlementId.toString().equals(e.getReference()))
+                .map(DepositLedgerEntity::getAmount)
+                .reduce(zero(), BigDecimal::add);
+
+        BigDecimal remaining = snapshot.getRefundDue().subtract(alreadyRefunded).setScale(2, RoundingMode.HALF_UP);
+        if (remaining.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new ApiException(
+                    ErrorCode.CONFLICT,
+                    HttpStatus.CONFLICT,
+                    "Settlement refund already paid"
+            );
+        }
+
+        String method = request.paymentMethod().trim().toUpperCase();
+        if ("BANK_TRANSFER".equals(method)
+                && (request.bankTransferReference() == null || request.bankTransferReference().isBlank())) {
+            throw new ApiException(
+                    ErrorCode.VALIDATION_FAILED,
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Bank transfer reference is required"
+            );
+        }
+
+        BigDecimal liveBalance = depositService.balanceOf(tenancy.getId()).setScale(2, RoundingMode.HALF_UP);
+        if (remaining.compareTo(liveBalance) > 0) {
+            throw new ApiException(
+                    ErrorCode.VALIDATION_FAILED,
+                    HttpStatus.UNPROCESSABLE_ENTITY,
+                    "Refund exceeds remaining deposit balance"
+            );
+        }
+
+        Instant now = Instant.now();
+        DepositLedgerEntity refund = depositLedgerRepository.save(new DepositLedgerEntity(
+                UUID.randomUUID(),
+                tenancy.getId(),
+                "REFUND",
+                remaining,
+                settlementId.toString(),
+                "Deposit refund via " + method
+                        + (request.bankTransferReference() != null
+                        ? " ref=" + request.bankTransferReference().trim()
+                        : ""),
+                now
+        ));
+
+        return new SettlementRefundResponse(
+                settlementId,
+                tenancy.getId(),
+                refund.getId(),
+                remaining,
+                method,
+                depositService.balanceOf(tenancy.getId()).setScale(2, RoundingMode.HALF_UP)
+        );
+    }
+
     private CheckoutContext loadActiveContext(AppUserEntity user, UUID tenancyId) {
         TenancyEntity tenancy = tenancyRepository.findById(tenancyId)
                 .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Tenancy not found"));

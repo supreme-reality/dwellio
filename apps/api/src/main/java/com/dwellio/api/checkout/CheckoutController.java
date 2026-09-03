@@ -52,4 +52,14 @@ public class CheckoutController {
         AppUserEntity user = currentUserService.upsertFromJwt(jwt);
         return checkoutService.getSettlement(user, settlementId);
     }
+
+    @PostMapping("/settlements/{settlementId}/refund")
+    public SettlementRefundResponse refund(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID settlementId,
+            @Valid @RequestBody SettlementRefundRequest request
+    ) {
+        AppUserEntity user = currentUserService.upsertFromJwt(jwt);
+        return checkoutService.refund(user, settlementId, request);
+    }
 }
