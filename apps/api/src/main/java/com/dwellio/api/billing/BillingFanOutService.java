@@ -19,17 +19,20 @@ public class BillingFanOutService {
     private final BillingRunItemRepository billingRunItemRepository;
     private final TenancyRepository tenancyRepository;
     private final OccupancyRepository occupancyRepository;
+    private final InvoiceJobPublisher invoiceJobPublisher;
 
     public BillingFanOutService(
             BillingRunRepository billingRunRepository,
             BillingRunItemRepository billingRunItemRepository,
             TenancyRepository tenancyRepository,
-            OccupancyRepository occupancyRepository
+            OccupancyRepository occupancyRepository,
+            InvoiceJobPublisher invoiceJobPublisher
     ) {
         this.billingRunRepository = billingRunRepository;
         this.billingRunItemRepository = billingRunItemRepository;
         this.tenancyRepository = tenancyRepository;
         this.occupancyRepository = occupancyRepository;
+        this.invoiceJobPublisher = invoiceJobPublisher;
     }
 
     /**
@@ -79,6 +82,10 @@ public class BillingFanOutService {
         run.setStatus("COMPLETED");
         run.setUpdatedAt(now);
         billingRunRepository.save(run);
+
+        invoiceJobPublisher.publishAll(items.stream()
+                .map(item -> new InvoiceJob(item.getId(), item.getTenancyId(), period))
+                .toList());
 
         return new BillingFanOutResult(run.getId(), period, items.size(), items.size(), false);
     }

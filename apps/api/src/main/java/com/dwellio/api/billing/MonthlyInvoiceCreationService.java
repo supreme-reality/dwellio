@@ -6,8 +6,8 @@ import com.dwellio.api.invoice.InvoiceLineItemRepository;
 import com.dwellio.api.invoice.InvoiceRepository;
 import com.dwellio.api.property.PropertyEntity;
 import com.dwellio.api.property.PropertyRepository;
-import com.dwellio.api.rent.RentConfigRepository;
 import com.dwellio.api.rent.RentConfigEntity;
+import com.dwellio.api.rent.RentConfigRepository;
 import com.dwellio.api.service.ServiceCatalogRepository;
 import com.dwellio.api.service.ServiceChargeEntity;
 import com.dwellio.api.service.ServiceChargeRepository;
@@ -24,8 +24,12 @@ import com.dwellio.api.inventory.BedEntity;
 import com.dwellio.api.inventory.BedRepository;
 import com.dwellio.api.inventory.RoomEntity;
 import com.dwellio.api.inventory.RoomRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -52,6 +56,7 @@ public class MonthlyInvoiceCreationService {
     private final ServiceCatalogRepository serviceCatalogRepository;
     private final ServiceConfigRepository serviceConfigRepository;
     private final ServiceChargeRepository chargeRepository;
+    private final TransactionTemplate requiresNewTx;
 
     public MonthlyInvoiceCreationService(
             BillingRunItemRepository billingRunItemRepository,
@@ -67,7 +72,8 @@ public class MonthlyInvoiceCreationService {
             ServiceEnrollmentRepository enrollmentRepository,
             ServiceCatalogRepository serviceCatalogRepository,
             ServiceConfigRepository serviceConfigRepository,
-            ServiceChargeRepository chargeRepository
+            ServiceChargeRepository chargeRepository,
+            PlatformTransactionManager transactionManager
     ) {
         this.billingRunItemRepository = billingRunItemRepository;
         this.billingRunRepository = billingRunRepository;
@@ -83,22 +89,45 @@ public class MonthlyInvoiceCreationService {
         this.serviceCatalogRepository = serviceCatalogRepository;
         this.serviceConfigRepository = serviceConfigRepository;
         this.chargeRepository = chargeRepository;
+        this.requiresNewTx = new TransactionTemplate(transactionManager);
+        this.requiresNewTx.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
-    @Transactional
+    /**
+     * Process each PENDING item in its own transaction so one failure does not roll back others.
+     */
     public ProcessResult processPendingItems() {
-        List<BillingRunItemEntity> pending = billingRunItemRepository.findByStatusOrderByCreatedAtAsc("PENDING");
+        List<UUID> pendingIds = billingRunItemRepository.findByStatusOrderByCreatedAtAsc("PENDING").stream()
+                .map(BillingRunItemEntity::getId)
+                .toList();
         int processed = 0;
         int skipped = 0;
-        for (BillingRunItemEntity item : pending) {
-            boolean created = processItem(item);
-            if (created) {
-                processed++;
-            } else {
+        int failed = 0;
+        for (UUID itemId : pendingIds) {
+            try {
+                Boolean created = requiresNewTx.execute(status -> {
+                    BillingRunItemEntity item = billingRunItemRepository.findById(itemId).orElse(null);
+                    if (item == null) {
+                        return false;
+                    }
+                    return processItem(item);
+                });
+                if (Boolean.TRUE.equals(created)) {
+                    processed++;
+                } else {
+                    skipped++;
+                }
+            } catch (DataIntegrityViolationException ex) {
+                requiresNewTx.executeWithoutResult(status ->
+                        markTerminal(itemId, "SKIPPED", "MONTHLY already exists for period"));
                 skipped++;
+            } catch (RuntimeException ex) {
+                requiresNewTx.executeWithoutResult(status ->
+                        markTerminal(itemId, "FAILED", ex.getMessage()));
+                failed++;
             }
         }
-        return new ProcessResult(processed, skipped);
+        return new ProcessResult(processed, skipped, failed);
     }
 
     @Transactional
@@ -111,13 +140,7 @@ public class MonthlyInvoiceCreationService {
                 .orElseThrow(() -> new IllegalStateException("Billing run missing"));
         LocalDate period = run.getBillingPeriod();
 
-        // Idempotent: existing MONTHLY for tenancy+period
-        boolean exists = invoiceRepository.findByTenancyIdOrderByBillingDateDescCreatedAtDesc(item.getTenancyId())
-                .stream()
-                .anyMatch(i -> "MONTHLY".equals(i.getInvoiceType())
-                        && period.equals(i.getBillingPeriod())
-                        && !"VOID".equals(i.getStatus()));
-        if (exists) {
+        if (invoiceRepository.existsNonVoidMonthly(item.getTenancyId(), period)) {
             item.setStatus("SKIPPED");
             item.setUpdatedAt(now);
             billingRunItemRepository.save(item);
@@ -179,22 +202,22 @@ public class MonthlyInvoiceCreationService {
                     subtotal = subtotal.add(amount);
                 }
             } else if ("VARIABLE".equals(service.getBillingType())) {
-                BigDecimal amount = chargeRepository
+                ServiceChargeEntity charge = chargeRepository
                         .findByServiceEnrollmentIdAndBillingPeriod(enrollment.getId(), period)
-                        .map(ServiceChargeEntity::getAmount)
-                        .orElse(zero());
-                if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                        .orElse(null);
+                if (charge != null && charge.getAmount().compareTo(BigDecimal.ZERO) > 0) {
+                    // Bind: reference_id = service_charge.id so checkout can treat as billed
                     lines.add(new InvoiceLineItemEntity(
                             UUID.randomUUID(), invoiceId, "SERVICE", service.getName() + " (variable)",
-                            BigDecimal.ONE, amount, amount, service.getId(), now
+                            BigDecimal.ONE, charge.getAmount(), charge.getAmount(), charge.getId(), now
                     ));
-                    subtotal = subtotal.add(amount);
+                    subtotal = subtotal.add(charge.getAmount());
                 }
             }
         }
 
         subtotal = subtotal.setScale(2, RoundingMode.HALF_UP);
-        InvoiceEntity invoice = invoiceRepository.save(new InvoiceEntity(
+        InvoiceEntity invoice = invoiceRepository.saveAndFlush(new InvoiceEntity(
                 invoiceId,
                 tenancy.getId(),
                 "MONTHLY",
@@ -223,6 +246,20 @@ public class MonthlyInvoiceCreationService {
         item.setUpdatedAt(now);
         billingRunItemRepository.save(item);
         return true;
+    }
+
+    private void markTerminal(UUID itemId, String status, String message) {
+        BillingRunItemEntity item = billingRunItemRepository.findById(itemId).orElse(null);
+        if (item == null || !"PENDING".equals(item.getStatus())) {
+            return;
+        }
+        Instant now = Instant.now();
+        item.setStatus(status);
+        if (message != null) {
+            item.setErrorMessage(message.length() > 500 ? message.substring(0, 500) : message);
+        }
+        item.setUpdatedAt(now);
+        billingRunItemRepository.save(item);
     }
 
     private BigDecimal resolveRent(UUID propertyId, UUID bedId, LocalDate date) {
@@ -262,6 +299,6 @@ public class MonthlyInvoiceCreationService {
         return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
     }
 
-    public record ProcessResult(int processed, int skipped) {
+    public record ProcessResult(int processed, int skipped, int failed) {
     }
 }
