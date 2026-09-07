@@ -127,15 +127,25 @@ No new AWS service for Tenancy/Transfer/Deposit/Checkout/Tickets/Bed block.
 
 ## 12. Documents & notices
 
-- Document statuses: `PENDING_UPLOAD` ? `UPLOADED` ? `ARCHIVED`.  
-- Notices: Markdown; sanitize/disable raw HTML; no targeting/groups/receipts in MVP.
+- Document statuses: `PENDING_UPLOAD` → `UPLOADED`; hard DELETE (DB + best-effort S3). No `ARCHIVED` in MVP.  
+- Notices: Markdown; sanitize/disable raw HTML; `DRAFT` / `PUBLISHED`; hard DELETE; no targeting/groups/receipts in MVP.
+- Expenses: property-scoped CRUD including hard delete.
 
 ---
 
 ## 13. Tickets
 
 - Property-scoped ticket entity; lifecycle statuses per DB/API.  
-- Same authorization boundary as other property resources.
+- Same authorization boundary as other property resources.  
+- Assignee (optional) must be Owner or Manager on that property.
+
+---
+
+## 13a. Analytics & exports
+
+- Derived read-only; no new financial truth.  
+- Occupancy point-in-time; revenue/expenses by date range; CSV exports `tenants`|`expenses`|`invoices`.  
+- Local document store for DEV: MinIO (S3-compatible).
 
 ---
 
@@ -160,7 +170,7 @@ Same as Context/FR/API v5.0 (no Transfer table, no partial payments, no manual b
 - Synced to v5.0 pack.  
 - Bed blocking + derived availability.  
 - Org-scoped tenants; OWNER/MEMBER + property MANAGER (no Viewer).  
-- Document UPLOADED lifecycle.  
+- Document UPLOADED lifecycle + hard DELETE (no ARCHIVED in MVP).  
 - Tickets in logical + persistence architecture.  
 - AWS capacity unchanged (Infra/Terraform v5.0 alignment-only).  
 - Billing fan-out vs Invoice create split; checkout settlement math + leaveReceivable.

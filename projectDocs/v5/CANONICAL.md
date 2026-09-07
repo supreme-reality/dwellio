@@ -30,13 +30,24 @@ Older PDFs under `projectDocs/` are retained for history only — **do not imple
 1. **Tickets** — `ticket` table + API/FR/Context/UX alignment  
 2. **Bed blocking** — `block_reason` / derived `AVAILABLE|OCCUPIED|BLOCKED` + `POST .../block|unblock`  
 3. **Tenant org scope** — `tenant.organization_id` + uniqueness  
-4. **Documents** — `PENDING_UPLOAD` ? `UPLOADED` ? `ARCHIVED`  
+4. **Documents** — `PENDING_UPLOAD` → `UPLOADED`; hard `DELETE` (no `ARCHIVED` in MVP)  
 5. **Tenancy API** — workflow-bound `/tenancies/{id}` allowed; services listed by tenancy; minimal stay GET  
 6. **Version references** — entire pack cites v5.0 peers  
 
 Also included: Owner/Member org membership + Owner-assigned property Manager (no Viewer); occupied-bed blocking; `property.default_currency`; explicit deposit `RECEIPT` on move-in payment; transfer preview services = informational.
 
 **Checkout / workers clarifications (locked for Tasks 23–27):** settlement math (`depositDeduction = min(SD, unpaid + newCharges)`); unpaid finish with `leaveReceivable`; refund manual CASH/BANK_TRANSFER; transfer proration + override; billing worker fans out, invoice worker creates MONTHLY invoices.
+
+**Side features clarifications (locked for Tasks 28–32):**
+1. **Expenses** — full CRUD (GET/POST + PATCH/DELETE); hard delete OK (not financial-immutable). Schema: `expense_type` (`id`, `property_id`, `name` unique/property, `active`, timestamps); `expense` (`id`, `property_id`, `expense_type_id`, `amount NUMERIC(12,2)`, `currency` from property `default_currency`, `incurred_on`, `notes`, `created_by_user_id`, timestamps). Flyway: `V10__ops_side.sql` (V7–V9 already used).
+2. **Notices** — `DRAFT` / `PUBLISHED` only; `POST …/publish`; **`DELETE /notices/{id}`**. No archive.
+3. **Documents** — `PENDING_UPLOAD` → HeadObject → `UPLOADED`; **`DELETE /documents/{id}`** (DB row + best-effort S3 object). No `ARCHIVED` in MVP. Local object store: **MinIO** in docker-compose (S3 API).
+4. **Tickets** — `assigned_to_user_id` must be Owner or Manager on that property (else 422); unassign on member deactivate / manager removal for `OPEN`/`IN_PROGRESS`.
+5. **Analytics** (read-only; optional `?from=&to=` ISO dates; default = current calendar month in property TZ / UTC if unset):
+   - occupancy (**point-in-time now**, ignore range): `{ totalBeds, occupiedBeds, blockedBeds, occupancyRate }` — ACTIVE catalog beds only
+   - revenue (range): `{ currency, paidAmount, finalizedInvoiceAmount }` — confirmed payments + finalized invoices in range
+   - expenses (range): `{ currency, totalAmount, byType: [{ expenseTypeId, name, totalAmount }] }` — sum by `incurred_on`
+6. **Exports** — `GET .../exports/{exportType}` CSV only; `exportType` ∈ `tenants` | `expenses` | `invoices` (property-scoped).
 
 ---
 

@@ -454,10 +454,10 @@ At-least-once: delete message only after success; uniqueness/idempotency protect
 
 ### Task 28: Expenses
 
-**Flyway:** `V7__ops_side.sql` (expense_type, expense, notice, document, ticket)  
-**Endpoints:** API §11 expense-types + expenses. Property-scoped authz.
+**Flyway:** `V10__ops_side.sql` (expense_type, expense, notice, document, ticket)  
+**Endpoints:** API §11 expense-types + expenses (GET/POST/PATCH/DELETE). Property-scoped authz.
 
-**Verify:** Cross-property access ? 404/403.
+**Verify:** Cross-property access ? 404/403; PATCH/DELETE work; delete expense-type with children ? 409/422.
 
 **Commit:** `feat(api): property expenses`
 
@@ -465,9 +465,9 @@ At-least-once: delete message only after success; uniqueness/idempotency protect
 
 ### Task 29: Notices (Markdown)
 
-**Endpoints:** CRUD + publish; sanitize/disable raw HTML on render path.
+**Endpoints:** CRUD + publish; `DELETE /notices/{id}`; statuses `DRAFT`/`PUBLISHED` only; sanitize/disable raw HTML on render path.
 
-**Verify:** Script tags stripped or rejected in test.
+**Verify:** Script tags stripped or rejected in test; DELETE removes notice.
 
 **Commit:** `feat(api): property notices`
 
@@ -475,10 +475,10 @@ At-least-once: delete message only after success; uniqueness/idempotency protect
 
 ### Task 30: Documents upload lifecycle
 
-**Endpoints:** create intent `PENDING_UPLOAD` (presigned S3 URL), `POST .../complete` ? HeadObject ? `UPLOADED`, archive ? `ARCHIVED`.  
-Local: LocalStack or MinIO in docker-compose.
+**Endpoints:** create intent `PENDING_UPLOAD` (presigned S3 URL), `POST .../complete` ? HeadObject ? `UPLOADED`, `DELETE` ? row + best-effort S3. No `ARCHIVED`.  
+Local: **MinIO** in docker-compose (S3 API).
 
-**Verify:** Complete without object ? fail; with object ? UPLOADED.
+**Verify:** Complete without object ? fail; with object ? UPLOADED; DELETE removes metadata.
 
 **Commit:** `feat(api): document upload lifecycle`
 
@@ -486,9 +486,9 @@ Local: LocalStack or MinIO in docker-compose.
 
 ### Task 31: Tickets
 
-**Endpoints:** list/create/get/patch; statuses `OPEN|IN_PROGRESS|RESOLVED|CLOSED`.
+**Endpoints:** list/create/get/patch; statuses `OPEN|IN_PROGRESS|RESOLVED|CLOSED`; assignee must be Owner or property Manager.
 
-**Verify:** Manager only on assigned property.
+**Verify:** Manager only on assigned property; invalid assignee ? 422; deactivate unassigns open tickets.
 
 **Commit:** `feat(api): property tickets`
 
@@ -496,9 +496,9 @@ Local: LocalStack or MinIO in docker-compose.
 
 ### Task 32: Analytics + exports (read-only)
 
-**Endpoints:** API §12; derived only; no financial writes.
+**Endpoints:** API §12 shapes — occupancy (now), revenue/expenses (range), CSV exports `tenants`|`expenses`|`invoices`. Derived only; no financial writes.
 
-**Verify:** Smoke tests return 200 with shape; do not mutate DB.
+**Verify:** Smoke tests return 200 with locked shape; exports `Content-Type: text/csv`; do not mutate DB.
 
 **Commit:** `feat(api): analytics and exports`
 
@@ -563,7 +563,7 @@ Copy: new stay creates **new Tenancy**; draft does not reserve bed.
 
 ### Task 39: Tickets, notices, documents UI
 
-**Verify:** Document statuses Pending upload ? Uploaded ? Archived; notices Markdown; ticket status badges.
+**Verify:** Document statuses Pending upload ? Uploaded; delete works; notices Markdown draft/publish/delete; ticket status badges.
 
 **Commit:** `feat(web): tickets notices documents UI`
 

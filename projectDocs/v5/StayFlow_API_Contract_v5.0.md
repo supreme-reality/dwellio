@@ -254,19 +254,27 @@ Illustrative preview (SD insufficient; leave receivable allowed):
 | Method | Path | Purpose |
 |---|---|---|
 | GET/POST | `/properties/{propertyId}/expense-types` | Categories |
+| PATCH | `/expense-types/{expenseTypeId}` | Update category (e.g. name, `active`) |
+| DELETE | `/expense-types/{expenseTypeId}` | Hard-delete category (reject if expenses still reference it, or cascade — prefer reject) |
 | GET/POST | `/properties/{propertyId}/expenses` | Expenses |
+| PATCH | `/expenses/{expenseId}` | Update expense |
+| DELETE | `/expenses/{expenseId}` | Hard-delete expense |
 | GET/POST | `/properties/{propertyId}/notices` | Notices |
-| PATCH | `/notices/{noticeId}` | Edit |
-| POST | `/notices/{noticeId}/publish` | Publish |
+| PATCH | `/notices/{noticeId}` | Edit (draft/published body/title) |
+| POST | `/notices/{noticeId}/publish` | `DRAFT` → `PUBLISHED` |
+| DELETE | `/notices/{noticeId}` | Hard-delete notice |
 | GET/POST | `/properties/{propertyId}/documents` | List / create upload intent (`PENDING_UPLOAD`) |
-| POST | `/documents/{documentId}/complete` | HeadObject verify ? **`UPLOADED`** |
+| POST | `/documents/{documentId}/complete` | HeadObject verify → **`UPLOADED`** |
 | GET | `/documents/{documentId}` | Metadata |
+| DELETE | `/documents/{documentId}` | Hard-delete metadata + best-effort S3 object |
 | GET/POST | `/properties/{propertyId}/tickets` | List / create tickets |
 | GET | `/tickets/{ticketId}` | Ticket detail |
 | PATCH | `/tickets/{ticketId}` | Update ticket/status |
 
-Document statuses: `PENDING_UPLOAD` ? `UPLOADED` ? `ARCHIVED`.  
-Notice body is Markdown; sanitize/disable raw HTML on render.
+Document statuses (MVP): `PENDING_UPLOAD` → `UPLOADED`. No `ARCHIVED`.  
+Notice statuses (MVP): `DRAFT` / `PUBLISHED`. No archive — use DELETE.  
+Notice body is Markdown; sanitize/disable raw HTML on render.  
+Ticket `assigned_to_user_id` (optional): must be Owner of the org or Manager on that property; otherwise 422.
 
 ---
 
@@ -274,10 +282,20 @@ Notice body is Markdown; sanitize/disable raw HTML on render.
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/properties/{propertyId}/analytics/occupancy` | Occupancy metrics |
-| GET | `/properties/{propertyId}/analytics/revenue` | Revenue summary |
-| GET | `/properties/{propertyId}/analytics/expenses` | Expense summary |
-| GET | `/properties/{propertyId}/exports/{exportType}` | Operational export |
+| GET | `/properties/{propertyId}/analytics/occupancy` | Point-in-time occupancy |
+| GET | `/properties/{propertyId}/analytics/revenue` | Revenue summary for range |
+| GET | `/properties/{propertyId}/analytics/expenses` | Expense summary for range |
+| GET | `/properties/{propertyId}/exports/{exportType}` | CSV export |
+
+Query (revenue/expenses/exports): optional `from` / `to` (ISO date); default = current calendar month. Occupancy ignores range (always now).
+
+**Occupancy response:** `{ totalBeds, occupiedBeds, blockedBeds, occupancyRate }` — ACTIVE catalog beds only; `occupancyRate = occupiedBeds / totalBeds` (0 if none).
+
+**Revenue response:** `{ currency, paidAmount, finalizedInvoiceAmount }` — sum of confirmed payments in range; sum of finalized invoice totals in range (by invoice period/issue date as implemented consistently).
+
+**Expenses response:** `{ currency, totalAmount, byType: [{ expenseTypeId, name, totalAmount }] }` — sum of expenses with `incurred_on` in range.
+
+**`exportType` (MVP):** `tenants` | `expenses` | `invoices` — `text/csv` download; property-scoped; same authz as other property APIs. Unknown type → 404/422.
 
 Read-only / derived; do not create financial truth.
 
@@ -322,6 +340,7 @@ Read-only / derived; do not create financial truth.
 - Historical bed-block API  
 - Razorpay deposit **payout** (refund methods: CASH / BANK_TRANSFER only in MVP)  
 - Taxes  
+- Notice / document archive (`ARCHIVED`) — use hard DELETE  
 
 ---
 
@@ -330,7 +349,10 @@ Read-only / derived; do not create financial truth.
 - Added bed `block` / `unblock` endpoints and derived availability.  
 - Added ticket detail GET; tickets backed by DB.  
 - Tenant create/list clarified as organization-scoped.  
-- Document lifecycle: `PENDING_UPLOAD` / `UPLOADED` / `ARCHIVED`.  
+- Document lifecycle: `PENDING_UPLOAD` / `UPLOADED` + DELETE (no `ARCHIVED` in MVP).  
+- Expense CRUD (PATCH/DELETE); notice DELETE; no notice/document archive.  
+- Analytics occupancy/revenue/expenses shapes + CSV exports `tenants`|`expenses`|`invoices`.  
+- Ticket assignee must be Owner or property Manager.  
 - Replaced tenant-scoped service list with tenancy-scoped list; added minimal `GET /tenancies/{id}`.  
 - Clarified tenancy resource policy and move-in payment as Payment façade.  
 - Checkout requires `tenancyId` in body; settlement math + `leaveReceivable` unpaid finish; refund methods CASH/BANK_TRANSFER.  

@@ -156,11 +156,13 @@ Effective-dated configuration; historical rows preserved; current-period changes
 ## 13. Expenses, notices, documents & tickets
 
 - Property/organization scoped; must not bypass authorization.  
-- Notices: property-wide Markdown.  
+- Expenses: property categories + expense rows; full CRUD including hard delete.  
+- Notices: property-wide Markdown; `DRAFT` / `PUBLISHED`; hard delete (no archive).  
 - Documents: metadata in DB; binaries in private object storage.  
-  **Canonical status:** `PENDING_UPLOAD` ? `UPLOADED` ? `ARCHIVED`.  
-- Tickets: property-scoped operational tickets with lifecycle status.  
-- These features do not alter Tenant ? Tenancy ? Occupancy.
+  **Canonical status:** `PENDING_UPLOAD` → `UPLOADED`; hard DELETE (no `ARCHIVED` in MVP).  
+- Tickets: property-scoped operational tickets with lifecycle status; assignee = Owner or property Manager only.  
+- Analytics/exports: derived occupancy (now), revenue/expenses (range), CSV `tenants`|`expenses`|`invoices`.  
+- These features do not alter Tenant → Tenancy → Occupancy.
 
 ---
 
@@ -192,6 +194,7 @@ Effective-dated configuration; historical rows preserved; current-period changes
 - No historical bed-block API  
 - Viewer role outside MVP  
 - Taxes outside MVP  
+- Notice / document archive (`ARCHIVED`) — hard DELETE instead  
 
 ---
 
@@ -208,7 +211,9 @@ Effective-dated configuration; historical rows preserved; current-period changes
 - Tickets required in persistence as well as API/FR.  
 - Bed availability model: AVAILABLE / OCCUPIED / BLOCKED with required reason.  
 - Tenant organization scoping made explicit.  
-- Document lifecycle made canonical (`PENDING_UPLOAD` / `UPLOADED` / `ARCHIVED`).  
+- Document lifecycle made canonical (`PENDING_UPLOAD` / `UPLOADED` + DELETE; no `ARCHIVED` in MVP).  
+- Expense CRUD; notice hard delete.  
+- Analytics shapes + CSV export types; ticket assignee rule; MinIO local docs.  
 - Tenancy API policy clarified; services listed by tenancy.  
 - Locked Owner / Member / Manager authz (no Viewer); owner-only property create/update/delete & membership admin.
 - Occupied-bed blocking allowed.

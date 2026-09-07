@@ -138,13 +138,15 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 
 ## 13. Expenses
 
-- Property expense categories and expenses; org/property isolated; reporting read-only derived.
+- Property expense categories and expenses; org/property isolated; reporting read-only derived.  
+- Full CRUD: create/list/update/delete. Hard delete OK (not financial-immutable).
 
 ---
 
 ## 14. Notices
 
-- Create/edit/publish/archive; Markdown body; sanitize/disable raw HTML; property scope.
+- Create/edit/publish/**delete**; Markdown body; sanitize/disable raw HTML; property scope.  
+- Statuses: `DRAFT` / `PUBLISHED` only (no archive in MVP).
 
 ---
 
@@ -152,7 +154,8 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 
 - Metadata in DB; binary in private object storage.  
 - May associate Property / Tenant / Tenancy.  
-- **Status lifecycle:** `PENDING_UPLOAD` ? `UPLOADED` (after backend object verify) ? `ARCHIVED`.  
+- **Status lifecycle:** `PENDING_UPLOAD` → `UPLOADED` (after backend object verify).  
+- Hard DELETE removes metadata + best-effort object storage delete. No `ARCHIVED` in MVP.  
 - Browser claim alone is insufficient for UPLOADED.
 
 ---
@@ -162,6 +165,7 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 - Property-scoped operational tickets.  
 - Status lifecycle: `OPEN` / `IN_PROGRESS` / `RESOLVED` / `CLOSED`.  
 - Accessible only within authorized organization/property scope.  
+- Optional assignee must be Owner or Manager on that property (else 422).  
 - Persisted per DB Schema v5.0.  
 - On member deactivate or manager removal: do not delete tickets; clear `assigned_to_user_id` for `OPEN` / `IN_PROGRESS` tickets assigned to that user on affected properties.
 
@@ -169,7 +173,11 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 
 ## 17. Minimal analytics & exports
 
-- Read-only derived occupancy/revenue/expense metrics and supported exports.  
+- Read-only derived occupancy/revenue/expense metrics and CSV exports.  
+- Occupancy: point-in-time `{ totalBeds, occupiedBeds, blockedBeds, occupancyRate }` (ACTIVE beds).  
+- Revenue (date range, default current month): `{ currency, paidAmount, finalizedInvoiceAmount }`.  
+- Expenses (date range): `{ currency, totalAmount, byType[] }` by `incurred_on`.  
+- Exports: `tenants` | `expenses` | `invoices` as CSV.  
 - No invented future reservations; no new financial truth.
 
 ---
@@ -207,7 +215,9 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 | Manager limits | Cannot create properties or assign managers |
 | Rooms/beds | Manager may create/update on assigned properties |
 | Block occupied | Allowed; bed shows BLOCKED |
-| Document upload | complete verify ? UPLOADED |
+| Document upload | complete verify → UPLOADED |
+| Document delete | hard delete metadata + best-effort S3 |
+| Notice delete | hard delete |
 | Services list | Listed by tenancyId, not tenantId |
 | Tickets | Create/list/update within property scope |
 | Transfer services | Enrollments remain; no bed rebind |
@@ -233,6 +243,7 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 - Future bed reservations / historical block API  
 - Viewer role  
 - Taxes  
+- Notice / document archive (`ARCHIVED` status) — use hard DELETE  
 
 ---
 
@@ -240,7 +251,9 @@ Project Context v5.0 is authoritative for product/domain rules. This document de
 
 - Bed AVAILABLE/OCCUPIED/BLOCKED + reason acceptance.  
 - Tenant organization scoping.  
-- Document PENDING_UPLOAD/UPLOADED/ARCHIVED.  
+- Document PENDING_UPLOAD/UPLOADED + DELETE (no ARCHIVED in MVP).  
+- Expense CRUD; notice DELETE.  
+- Analytics shapes + CSV `tenants`|`expenses`|`invoices`; ticket assignee rule.  
 - Tickets persistence acceptance.  
 - Tenancy-scoped service listing; tenancy API policy.  
 - Baseline pack ? v5.0 (Infra/Terraform alignment-only).
