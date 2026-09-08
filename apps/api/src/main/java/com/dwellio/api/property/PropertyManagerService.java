@@ -4,6 +4,7 @@ import com.dwellio.api.common.ApiException;
 import com.dwellio.api.common.ErrorCode;
 import com.dwellio.api.org.OrganizationMembershipEntity;
 import com.dwellio.api.org.OrganizationMembershipRepository;
+import com.dwellio.api.ticket.TicketService;
 import com.dwellio.api.user.AppUserEntity;
 import com.dwellio.api.user.AppUserRepository;
 import org.springframework.http.HttpStatus;
@@ -22,17 +23,20 @@ public class PropertyManagerService {
     private final PropertyMembershipRepository propertyMembershipRepository;
     private final OrganizationMembershipRepository organizationMembershipRepository;
     private final AppUserRepository appUserRepository;
+    private final TicketService ticketService;
 
     public PropertyManagerService(
             PropertyAccessService propertyAccessService,
             PropertyMembershipRepository propertyMembershipRepository,
             OrganizationMembershipRepository organizationMembershipRepository,
-            AppUserRepository appUserRepository
+            AppUserRepository appUserRepository,
+            TicketService ticketService
     ) {
         this.propertyAccessService = propertyAccessService;
         this.propertyMembershipRepository = propertyMembershipRepository;
         this.organizationMembershipRepository = organizationMembershipRepository;
         this.appUserRepository = appUserRepository;
+        this.ticketService = ticketService;
     }
 
     @Transactional(readOnly = true)
@@ -105,6 +109,14 @@ public class PropertyManagerService {
                         HttpStatus.NOT_FOUND,
                         "Property manager assignment not found"
                 ));
+        OrganizationMembershipEntity orgMembership = organizationMembershipRepository
+                .findById(membership.getOrganizationMembershipId())
+                .orElseThrow(() -> new ApiException(
+                        ErrorCode.INTERNAL_ERROR,
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Organization membership missing for property manager"
+                ));
+        ticketService.unassignOpenTicketsOnProperty(orgMembership.getUserId(), propertyId);
         propertyMembershipRepository.delete(membership);
     }
 

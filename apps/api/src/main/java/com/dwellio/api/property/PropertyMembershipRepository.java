@@ -17,6 +17,8 @@ public interface PropertyMembershipRepository extends JpaRepository<PropertyMemb
 
     Optional<PropertyMembershipEntity> findByIdAndPropertyId(UUID id, UUID propertyId);
 
+    List<PropertyMembershipEntity> findByOrganizationMembershipId(UUID organizationMembershipId);
+
     void deleteByOrganizationMembershipId(UUID organizationMembershipId);
 
     @Query("""
