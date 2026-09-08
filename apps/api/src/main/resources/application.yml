@@ -38,6 +38,15 @@ dwellio:
     webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     key-id: ${RAZORPAY_KEY_ID:}
     key-secret: ${RAZORPAY_KEY_SECRET:}
+  storage:
+    type: ${DWELLIO_STORAGE_TYPE:s3}
+    bucket: ${DWELLIO_DOCUMENTS_BUCKET:dwellio-documents}
+    region: ${DWELLIO_S3_REGION:us-east-1}
+    endpoint: ${DWELLIO_S3_ENDPOINT:http://localhost:9000}
+    access-key: ${DWELLIO_S3_ACCESS_KEY:dwellio}
+    secret-key: ${DWELLIO_S3_SECRET_KEY:dwellio-secret}
+    path-style: ${DWELLIO_S3_PATH_STYLE:true}
+    presign-ttl-seconds: ${DWELLIO_S3_PRESIGN_TTL:900}
 
 management:
   endpoints:
