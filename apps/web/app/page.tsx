@@ -1,5 +1,7 @@
 import { auth0 } from "@/lib/auth0";
+import { resolveAppHomePath } from "@/lib/app-home";
 import { fetchMe } from "@/lib/dwellio-api";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -31,50 +33,47 @@ export default async function Home() {
     );
   }
 
-  let meError: string | null = null;
-  let me: Awaited<ReturnType<typeof fetchMe>> | null = null;
-
   try {
     const { token } = await auth0.getAccessToken();
-    me = await fetchMe(token);
+    // Warm /me upsert so org APIs see the user
+    await fetchMe(token);
+    redirect(await resolveAppHomePath(token));
   } catch (error) {
-    meError = error instanceof Error ? error.message : "Failed to load profile";
-  }
+    // redirect() throws; rethrow Next.js redirects
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "digest" in error &&
+      String((error as { digest?: string }).digest).startsWith("NEXT_REDIRECT")
+    ) {
+      throw error;
+    }
 
-  return (
-    <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-8">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight">Dwellio</h1>
-          <p className="mt-1 text-sm text-neutral-600">
-            Signed in as {session.user.email ?? session.user.name ?? "user"}
-          </p>
-        </div>
-        <a
-          href="/auth/logout"
-          className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50"
-        >
-          Log out
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-8">
+        <header className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight">Dwellio</h1>
+            <p className="mt-1 text-sm text-neutral-600">
+              Signed in as {session.user.email ?? session.user.name ?? "user"}
+            </p>
+          </div>
+          <a
+            href="/auth/logout"
+            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50"
+          >
+            Log out
+          </a>
+        </header>
+        <p className="text-sm text-red-700">
+          {error instanceof Error
+            ? error.message
+            : "Failed to load application home"}
+        </p>
+        <a href="/onboarding" className="text-sm underline">
+          Go to onboarding
         </a>
-      </header>
-
-      <section className="rounded-lg border border-neutral-200 p-4">
-        <h2 className="text-sm font-medium text-neutral-500">Auth0 session</h2>
-        <pre className="mt-2 overflow-x-auto text-xs text-neutral-800">
-          {JSON.stringify(session.user, null, 2)}
-        </pre>
-      </section>
-
-      <section className="rounded-lg border border-neutral-200 p-4">
-        <h2 className="text-sm font-medium text-neutral-500">Dwellio /api/v1/me</h2>
-        {meError ? (
-          <p className="mt-2 text-sm text-red-700">{meError}</p>
-        ) : (
-          <pre className="mt-2 overflow-x-auto text-xs text-neutral-800">
-            {JSON.stringify(me, null, 2)}
-          </pre>
-        )}
-      </section>
-    </main>
-  );
+      </main>
+    );
+  }
 }

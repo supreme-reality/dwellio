@@ -42,11 +42,15 @@ docker compose up -d
 
 ### Web (port 3000)
 
+Requires Auth0 env in `apps/web/.env.local` (see `apps/web/.env.local.example` and `apps/web/README.md`) and a running API.
+
 ```bash
 cd apps/web
 npm install
 npm run dev
 ```
+
+After login, the app uses org → property URL context (`/o/{orgId}/p/{propertyId}/…`) for inventory, stays, finance, and ops screens.
 
 Production-like web build:
 
@@ -56,7 +60,7 @@ cd apps/web && npm run build
 
 ## Stack
 
-- API: Java 21, Spring Boot 3.3+, Actuator
-- Web: Next.js 15, TypeScript, App Router
-- Auth: Auth0 (later phases)
-- DB: PostgreSQL 15+ / Aurora (later phases)
+- API: Java 21, Spring Boot 3.3+, Actuator, Auth0 JWT
+- Web: Next.js 15, TypeScript, App Router, Auth0 SDK
+- Auth: Auth0 (Regular Web Application + API audience)
+- DB: PostgreSQL 15+ locally / Aurora in AWS
