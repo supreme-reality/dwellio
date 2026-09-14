@@ -40,5 +40,18 @@ yarn-error.log*
 # Docker
 postgres-data/
 
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+
 # OS
 Thumbs.db

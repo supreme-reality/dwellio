@@ -1,0 +1,184 @@
+# Terraform fmt / validate / plan / apply (DEV)
+# Auth: GitHub OIDC → IAM role (no long-lived AWS keys).
+#
+# Required GitHub configuration (after first Terraform apply that creates roles):
+#   Variables: AWS_REGION=ap-south-1
+#   Variables: AWS_ROLE_ARN_TERRAFORM_DEV=<output gha_terraform_role_arn>
+#   Environment "development" with required reviewers for apply
+#   Environment "production" for optional PROD plan/apply (workflow_dispatch)
+
+name: Terraform
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Terraform environment directory"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+      action:
+        description: "plan or apply (PROD apply requires production environment approval)"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+concurrency:
+  group: terraform-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+
+jobs:
+  fmt-validate:
+    name: fmt + validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Terraform fmt
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+
+      - name: Terraform init (dev, local backend)
+        run: terraform init -input=false
+
+      - name: Terraform validate (dev)
+        run: terraform validate
+
+      - name: Terraform init (prod, local backend)
+        working-directory: terraform/environments/prod
+        run: terraform init -input=false
+
+      - name: Terraform validate (prod)
+        working-directory: terraform/environments/prod
+        run: terraform validate
+
+  plan:
+    name: plan
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || 'development' }}
+    defaults:
+      run:
+        working-directory: terraform/environments/${{ github.event.inputs.environment || 'dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_TERRAFORM_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform plan
+        id: plan
+        run: terraform plan -no-color -input=false | tee plan.txt
+
+      - name: Comment plan on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = fs.readFileSync('terraform/environments/dev/plan.txt', 'utf8');
+            const body = `### Terraform plan (dev)\n\`\`\`\n${plan.slice(0, 60000)}\n\`\`\``;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+
+  apply-dev:
+    name: apply DEV
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'dev' && github.event.inputs.action == 'apply')
+    environment: development
+    defaults:
+      run:
+        working-directory: terraform/environments/dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_TERRAFORM_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false
+
+  apply-prod:
+    name: apply PROD
+    needs: fmt-validate
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'prod' && github.event.inputs.action == 'apply'
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform/environments/prod
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.5"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          # PROD uses its own role once created; fall back to DEV terraform role only if shared.
+          role-to-assume: ${{ vars.AWS_ROLE_ARN_TERRAFORM_PROD || vars.AWS_ROLE_ARN_TERRAFORM_DEV }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform apply
+        run: terraform apply -auto-approve -input=false

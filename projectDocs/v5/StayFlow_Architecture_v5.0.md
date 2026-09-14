@@ -110,6 +110,8 @@ Supersedes Architecture v1.7.
 | SQS | Billing Trigger + Invoice queues + DLQs |
 | S3 | Private document binaries; app verifies HeadObject before UPLOADED |
 
+Billing and invoice workers are **separate ECS services** for independent scale, from one shared worker container image selected by `WORKER_ROLE=billing|invoice` (repo: `apps/worker`).
+
 ---
 
 ## 11. AWS runtime (unchanged capacity)
@@ -117,7 +119,7 @@ Supersedes Architecture v1.7.
 - DEV VPC `10.10.0.0/16`; PROD `10.20.0.0/16`; 2 AZs  
 - ALB ? ECS API; workers private  
 - API DEV 0/1/2 @ 0.25 vCPU/512 MB; PROD 2/2/4 @ 0.5 vCPU/1 GB  
-- Billing worker 0/0/1 both envs; Invoice worker DEV 0/0/1, PROD 1/1/5  
+- Billing worker 0/0/1 both envs; Invoice worker DEV 0/0/1, PROD 1/1/5 (same image, different `WORKER_ROLE`)  
 - Aurora Serverless v2 DEV 0–2 ACU; PROD 0.5–4 ACU  
 - Secrets Manager, OIDC, CloudWatch, SSM port-forward for temp DB access  
 

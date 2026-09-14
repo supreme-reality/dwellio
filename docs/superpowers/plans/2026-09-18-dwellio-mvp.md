@@ -13,7 +13,7 @@
 - API: Java 21, Spring Boot 3.3+, Spring Security OAuth2 Resource Server (Auth0 JWT), Flyway, JPA or JDBC
 - DB: PostgreSQL 15+ locally; Aurora PostgreSQL in AWS
 - Web: Next.js 15 (App Router), TypeScript, Auth0 Next.js SDK
-- Workers: Spring Boot apps sharing `apps/api` domain modules (`billing-worker` fan-out, `invoice-worker` MONTHLY create)
+- Workers: one Spring Boot app (`apps/worker`) sharing `apps/api` domain modules; `WORKER_ROLE=billing|invoice` selects consumers; deploy same image as separate ECS services for independent scale
 - Infra: Terraform (VPC, ALB, ECS, Aurora, SQS, S3, IAM/OIDC, monitoring)
 - Frontend host: Vercel + Route 53 CNAME/ALIAS for `app.<your-domain>`
 - Payments: Razorpay + CASH + BANK_TRANSFER (per API v5.0)
@@ -37,8 +37,7 @@
 dwellio/
   apps/
     api/                 # Spring Boot API
-    billing-worker/      # Monthly billing worker
-    invoice-worker/      # Invoice SQS consumer
+    worker/              # Shared worker image (WORKER_ROLE=billing|invoice)
     web/                 # Next.js (Vercel)
   packages/
     (optional later)     # shared TS types if needed
@@ -56,11 +55,10 @@ dwellio/
 |---|---|
 | `apps/api/src/main/java/com/dwellio/api/` | HTTP API, auth filter, domain services, repositories |
 | `apps/api/src/main/resources/db/migration/` | Flyway SQL from DB Schema v5.0 |
-| `apps/billing-worker/` | EventBridge/SQS billing **fan-out** to Invoice queue |
-| `apps/invoice-worker/` | Per-stay MONTHLY invoice create/finalize + idempotency |
+| `apps/worker/` | Shared worker image; `WORKER_ROLE=billing` fan-out; `WORKER_ROLE=invoice` MONTHLY create + idempotency |
 | `apps/web/` | Dwellio UI (Auth0 login, org/property context, workflows) |
-| `terraform/` | AWS infra as code |
-| `.github/workflows/` | Infra plan/apply + API image ? ECR ? ECS; web deploy via Vercel Git integration |
+| `terraform/` | AWS infra as code (two ECS worker services, one worker image) |
+| `.github/workflows/` | Infra plan/apply + API/worker images ? ECR ? ECS; web deploy via Vercel Git integration |
 
 ---
 
@@ -426,9 +424,9 @@ Only when snapshot `refundDue > 0`. Methods: `CASH` | `BANK_TRANSFER` (Razorpay 
 
 ---
 
-### Task 26: Billing worker skeleton + fan-out
+### Task 26: Billing worker role + fan-out
 
-**Files:** `apps/billing-worker/` Spring Boot app; shares persistence/domain module with API.  
+**Files:** `apps/worker/` Spring Boot app (`WORKER_ROLE=billing`); shares persistence/domain module with API.  
 Triggered by Billing Trigger SQS (EventBridge 23:00 IST on the 1st). Local: internal test trigger **only in local/test**, never deployed.  
 **Does not create invoices.** Idempotent billing-run key; **fans out** one Invoice-queue message per active stay (stay-level idempotency key).
 
@@ -438,9 +436,9 @@ Triggered by Billing Trigger SQS (EventBridge 23:00 IST on the 1st). Local: inte
 
 ---
 
-### Task 27: Invoice worker + SQS consumer
+### Task 27: Invoice worker role + SQS consumer
 
-**Files:** `apps/invoice-worker/`  
+**Files:** `apps/worker/` (`WORKER_ROLE=invoice`)  
 Consumes Invoice SQS: create/finalize MONTHLY invoice for the stay; bind variable charges; due_date = billing_date + snapshotted `payment_due_days`.  
 At-least-once: delete message only after success; uniqueness/idempotency protects money; txn timeout ? 5 min; DLQ after max receives.
 
@@ -649,9 +647,9 @@ Implement VPC `10.10.0.0/16`, ALB, Aurora Serverless v2 (0–2 ACU), SQS+DLQs, pri
 
 ### Task 45: Terraform ECS API + workers + GitHub OIDC
 
-API service + billing/invoice workers; task sizes DEV 0.25 vCPU/512MB; IAM via GitHub OIDC (no long-lived keys in GitHub Secrets).
+API service + billing/invoice ECS services (same worker image, different `WORKER_ROLE`); task sizes DEV 0.25 vCPU/512MB; IAM via GitHub OIDC (no long-lived keys in GitHub Secrets).
 
-**Verify:** Plan shows 3 ECS services; OIDC role trust limited to this repo.
+**Verify:** Plan shows 3 ECS services (api + billing + invoice); one worker ECR image; OIDC role trust limited to this repo.
 
 **Commit:** `feat(terraform): ECS services and GitHub OIDC`
 
@@ -661,7 +659,7 @@ API service + billing/invoice workers; task sizes DEV 0.25 vCPU/512MB; IAM via G
 
 **Files:** `.github/workflows/terraform.yml`, `api-deploy.yml`  
 Infra: PR ? fmt/validate/plan; main ? apply with approval.  
-App: build image ? ECR ? ECS service update.  
+App: build API + worker images ? ECR ? ECS service update (worker image deployed to billing and invoice services with `WORKER_ROLE`).  
 Web: Vercel Git integration (document; no duplicate deploy unless needed).
 
 **Verify:** Workflow files validate (`actionlint` if available); dry-run docs in README.

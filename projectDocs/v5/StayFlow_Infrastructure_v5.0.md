@@ -34,6 +34,8 @@ Supersedes Infrastructure v1.3 **without material AWS changes**. Domain gaps res
 
 Task sizing: DEV 0.25 vCPU / 512 MB; PROD 0.5 vCPU / 1 GB.
 
+Billing and Invoice Worker rows are **two ECS services** (independent scale) sharing **one worker image**, distinguished by env `WORKER_ROLE=billing|invoice`.
+
 ---
 
 ## 3. Network & security (unchanged)

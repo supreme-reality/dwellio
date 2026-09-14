@@ -34,6 +34,8 @@ State: S3-backed remote state with separate DEV/PROD keys; bootstrap backend sep
 | invoice_worker min/desired/max | 0/0/1 | 1/1/5 |
 | aurora_min_acu / max_acu | 0 / 2 | 0.5 / 4 |
 
+`billing_worker` and `invoice_worker` are separate ECS services (and capacity variables) that share **one worker ECR image**. Task definitions set `WORKER_ROLE=billing` or `WORKER_ROLE=invoice`.
+
 ---
 
 ## 4. Modules (unchanged)
@@ -47,7 +49,7 @@ ECS services must `ignore_changes` on `desired_count` for sleep/wake.
 ## 5. GitHub Actions (unchanged)
 
 - Infra: PR ? fmt/validate/plan ? approval ? apply  
-- App: build image ? ECR ? ECS update  
+- App: build API + worker images ? ECR ? ECS update (worker image rolled to both billing and invoice services)  
 - Auth: OIDC short-lived roles; no long-lived AWS keys in GitHub Secrets  
 
 ---

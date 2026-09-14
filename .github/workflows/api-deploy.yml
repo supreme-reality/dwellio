@@ -1,0 +1,137 @@
+# Build API + worker images → ECR → update ECS (api, billing, invoice).
+# Auth: GitHub OIDC → IAM deploy role (no long-lived AWS keys).
+#
+# Required GitHub Variables (after Terraform apply):
+#   AWS_REGION=ap-south-1
+#   AWS_ROLE_ARN_DEPLOY_DEV=<output gha_deploy_role_arn>
+#   ECS_CLUSTER_DEV=<output ecs_cluster_name>          e.g. dwellio-dev
+#   ECR_API_REPOSITORY_DEV=<output api_ecr_repository_url>
+#   ECR_WORKER_REPOSITORY_DEV=<output worker_ecr_repository_url>
+
+name: API deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/worker/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle/**"
+      - ".github/workflows/api-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: api-deploy-${{ github.event.inputs.environment || 'dev' }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || 'development' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve env config
+        id: cfg
+        run: |
+          ENV="${{ github.event.inputs.environment || 'dev' }}"
+          echo "env=$ENV" >> "$GITHUB_OUTPUT"
+          if [ "$ENV" = "prod" ]; then
+            echo "role=${{ vars.AWS_ROLE_ARN_DEPLOY_PROD || vars.AWS_ROLE_ARN_DEPLOY_DEV }}" >> "$GITHUB_OUTPUT"
+            echo "cluster=${{ vars.ECS_CLUSTER_PROD }}" >> "$GITHUB_OUTPUT"
+            echo "ecr_api=${{ vars.ECR_API_REPOSITORY_PROD }}" >> "$GITHUB_OUTPUT"
+            echo "ecr_worker=${{ vars.ECR_WORKER_REPOSITORY_PROD }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "role=${{ vars.AWS_ROLE_ARN_DEPLOY_DEV }}" >> "$GITHUB_OUTPUT"
+            echo "cluster=${{ vars.ECS_CLUSTER_DEV }}" >> "$GITHUB_OUTPUT"
+            echo "ecr_api=${{ vars.ECR_API_REPOSITORY_DEV }}" >> "$GITHUB_OUTPUT"
+            echo "ecr_worker=${{ vars.ECR_WORKER_REPOSITORY_DEV }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ steps.cfg.outputs.role }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image tags
+        id: meta
+        run: |
+          SHA="${GITHUB_SHA::12}"
+          echo "tag=$SHA" >> "$GITHUB_OUTPUT"
+          echo "api_image=${{ steps.cfg.outputs.ecr_api }}:$SHA" >> "$GITHUB_OUTPUT"
+          echo "api_latest=${{ steps.cfg.outputs.ecr_api }}:latest" >> "$GITHUB_OUTPUT"
+          echo "worker_image=${{ steps.cfg.outputs.ecr_worker }}:$SHA" >> "$GITHUB_OUTPUT"
+          echo "worker_latest=${{ steps.cfg.outputs.ecr_worker }}:latest" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.api_image }}
+            ${{ steps.meta.outputs.api_latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push worker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.worker_image }}
+            ${{ steps.meta.outputs.worker_latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy API service
+        run: |
+          aws ecs update-service \
+            --cluster "${{ steps.cfg.outputs.cluster }}" \
+            --service api \
+            --force-new-deployment \
+            --region "${{ env.AWS_REGION }}"
+
+      - name: Deploy billing + invoice (shared worker image)
+        run: |
+          # Task definitions already set WORKER_ROLE=billing|invoice and image :latest.
+          # Force new deployment so both services pull the new worker image.
+          aws ecs update-service \
+            --cluster "${{ steps.cfg.outputs.cluster }}" \
+            --service billing \
+            --force-new-deployment \
+            --region "${{ env.AWS_REGION }}"
+          aws ecs update-service \
+            --cluster "${{ steps.cfg.outputs.cluster }}" \
+            --service invoice \
+            --force-new-deployment \
+            --region "${{ env.AWS_REGION }}"
