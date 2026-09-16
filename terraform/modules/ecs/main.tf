@@ -122,6 +122,42 @@ resource "aws_iam_role_policy_attachment" "execution" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+# Pull Secrets Manager values into task env (incl. RDS-managed master secret + KMS).
+data "aws_iam_policy_document" "execution_secrets" {
+  statement {
+    sid = "SecretsInject"
+    actions = [
+      "secretsmanager:GetSecretValue",
+      "secretsmanager:DescribeSecret",
+    ]
+    resources = [
+      var.db_secret_arn,
+      var.db_master_secret_arn,
+      var.app_secret_arn,
+    ]
+  }
+
+  statement {
+    sid = "KmsDecryptForSecrets"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+    ]
+    resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "kms:ViaService"
+      values   = ["secretsmanager.${var.aws_region}.amazonaws.com"]
+    }
+  }
+}
+
+resource "aws_iam_role_policy" "execution_secrets" {
+  name   = "dwellio-execution-secrets"
+  role   = aws_iam_role.execution.id
+  policy = data.aws_iam_policy_document.execution_secrets.json
+}
+
 resource "aws_iam_role" "task" {
   name               = "${var.name_prefix}-ecs-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_task_assume.json
@@ -196,6 +232,33 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "SERVER_PORT", value = tostring(var.api_port) },
         { name = "SPRING_PROFILES_ACTIVE", value = "aws" },
+        { name = "SPRING_DATASOURCE_URL", value = var.database_jdbc_url },
+        { name = "DWELLIO_STORAGE_TYPE", value = "s3" },
+        { name = "DWELLIO_DOCUMENTS_BUCKET", value = var.documents_bucket },
+        { name = "DWELLIO_S3_REGION", value = var.aws_region },
+        # Empty → real AWS S3 + task-role credentials (see StorageConfig).
+        { name = "DWELLIO_S3_ENDPOINT", value = "" },
+        { name = "DWELLIO_S3_ACCESS_KEY", value = "" },
+        { name = "DWELLIO_S3_SECRET_KEY", value = "" },
+        { name = "DWELLIO_S3_PATH_STYLE", value = "false" },
+      ]
+      secrets = [
+        {
+          name      = "SPRING_DATASOURCE_USERNAME"
+          valueFrom = "${var.db_secret_arn}:username::"
+        },
+        {
+          name      = "SPRING_DATASOURCE_PASSWORD"
+          valueFrom = "${var.db_master_secret_arn}:password::"
+        },
+        {
+          name      = "AUTH0_ISSUER_URI"
+          valueFrom = "${var.app_secret_arn}:AUTH0_ISSUER_URI::"
+        },
+        {
+          name      = "AUTH0_AUDIENCE"
+          valueFrom = "${var.app_secret_arn}:AUTH0_AUDIENCE::"
+        },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -228,6 +291,17 @@ resource "aws_ecs_task_definition" "billing" {
       environment = [
         { name = "WORKER_ROLE", value = "billing" },
         { name = "SPRING_PROFILES_ACTIVE", value = "aws" },
+        { name = "SPRING_DATASOURCE_URL", value = var.database_jdbc_url },
+      ]
+      secrets = [
+        {
+          name      = "SPRING_DATASOURCE_USERNAME"
+          valueFrom = "${var.db_secret_arn}:username::"
+        },
+        {
+          name      = "SPRING_DATASOURCE_PASSWORD"
+          valueFrom = "${var.db_master_secret_arn}:password::"
+        },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -260,6 +334,17 @@ resource "aws_ecs_task_definition" "invoice" {
       environment = [
         { name = "WORKER_ROLE", value = "invoice" },
         { name = "SPRING_PROFILES_ACTIVE", value = "aws" },
+        { name = "SPRING_DATASOURCE_URL", value = var.database_jdbc_url },
+      ]
+      secrets = [
+        {
+          name      = "SPRING_DATASOURCE_USERNAME"
+          valueFrom = "${var.db_secret_arn}:username::"
+        },
+        {
+          name      = "SPRING_DATASOURCE_PASSWORD"
+          valueFrom = "${var.db_master_secret_arn}:password::"
+        },
       ]
       logConfiguration = {
         logDriver = "awslogs"
@@ -281,6 +366,9 @@ resource "aws_ecs_service" "api" {
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.api_desired_count
   launch_type     = "FARGATE"
+
+  # Aurora Serverless + Spring Boot cold start can exceed 1–2 minutes.
+  health_check_grace_period_seconds = 300
 
   network_configuration {
     subnets          = var.app_subnet_ids

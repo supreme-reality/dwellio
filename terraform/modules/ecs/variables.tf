@@ -66,3 +66,28 @@ variable "worker_image_tag" {
   type    = string
   default = "latest"
 }
+
+variable "database_jdbc_url" {
+  type        = string
+  description = "JDBC URL for API/worker (Aurora), e.g. jdbc:postgresql://host:5432/dwellio"
+}
+
+variable "db_secret_arn" {
+  type        = string
+  description = "App DB secret ARN (JSON keys: username, ...)"
+}
+
+variable "db_master_secret_arn" {
+  type        = string
+  description = "RDS-managed master user secret ARN (JSON key: password)"
+}
+
+variable "app_secret_arn" {
+  type        = string
+  description = "App config secret ARN (JSON keys: AUTH0_ISSUER_URI, AUTH0_AUDIENCE, ...)"
+}
+
+variable "documents_bucket" {
+  type        = string
+  description = "S3 documents bucket name"
+}

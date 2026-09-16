@@ -15,7 +15,12 @@ variable "aws_region" {
 
 variable "github_repository" {
   type        = string
-  description = "GitHub org/repo trusted by OIDC (e.g. supreme-reality/dwellio)"
+  description = "Human-readable GitHub org/repo (docs only; not used for IAM sub trust)"
+}
+
+variable "github_oidc_sub_prefix" {
+  type        = string
+  description = "GitHub OIDC sub prefix before context (e.g. repo:org@id/repo@id). Module appends :*"
 }
 
 variable "create_github_oidc_provider" {

@@ -91,7 +91,14 @@ Billing and Invoice are **two ECS services** sharing **one worker ECR image**, s
 
 Hosted zone for `vikranthreddy.com` already exists in Route 53 (domain purchased there). Terraform manages ACM certificates and the API alias records.
 
-Web app subdomain (`app.…`) is Phase 8 / Vercel — not created by the API Terraform stack.
+**Web hostnames (manual Route 53 CNAME → Vercel; not Terraform)**
+
+| Env | Hostname | Vercel environment (Hobby) |
+|---|---|---|
+| DEV | `app-dev.vikranthreddy.com` | Preview (or dedicated DEV project) |
+| PROD | `app.vikranthreddy.com` | Production (`main`) |
+
+See [`docs/vercel-deploy.md`](vercel-deploy.md) and [`docs/auth0-setup.md`](auth0-setup.md).
 
 ---
 
@@ -137,7 +144,17 @@ Temporary DB access: SSM port-forward (documented in Architecture); no extra AWS
 
 ## 7. Secrets Manager
 
-Terraform creates secret **stubs** (names/ARNs). Values (DB password, Auth0, etc.) are set out-of-band via console/CLI — never committed to git.
+Terraform creates secret **stubs** (names/ARNs). Sensitive values are set out-of-band (console/CLI) — never committed to git. `dwellio-*/app` secret versions use `lifecycle.ignore_changes` on `secret_string` so applies do not wipe console edits.
+
+| Secret | Purpose | Keys used by ECS |
+|---|---|---|
+| `{prefix}/db` | App DB connection hints | `username` → `SPRING_DATASOURCE_USERNAME` |
+| `rds!cluster-…` (RDS-managed) | Aurora master password | `password` → `SPRING_DATASOURCE_PASSWORD` |
+| `{prefix}/app` | App config | `AUTH0_ISSUER_URI`, `AUTH0_AUDIENCE` |
+
+ECS also sets non-secret env: `SPRING_DATASOURCE_URL` (Aurora JDBC), `DWELLIO_DOCUMENTS_BUCKET`, `DWELLIO_S3_REGION`, and clears MinIO-oriented S3 endpoint/keys so the **task role** is used for S3.
+
+Ensure `{prefix}/app` has real Auth0 issuer + audience before the API can finish JWT setup.
 
 ---
 
@@ -215,14 +232,16 @@ terraform destroy  # tears down PROD only — never touches DEV
 
 ## 12. GitHub Actions & OIDC
 
-**Repo trust:** `supreme-reality/dwellio` only.
+**Repo trust:** `supreme-reality/dwellio` (human-readable). IAM trust uses GitHub’s **ID-qualified** OIDC `sub` prefix from Terraform var `github_oidc_sub_prefix` (e.g. `repo:supreme-reality@73769022/dwellio@1377241890:*`), not classic `repo:org/repo:*`.
 
 **No long-lived AWS access keys in GitHub Secrets.** Workflows assume IAM roles via GitHub → AWS OIDC:
 
 1. IAM OIDC provider for `token.actions.githubusercontent.com`.
-2. Role trust condition on token `sub` (e.g. `repo:supreme-reality/dwellio:*` or tightened to `main` for apply).
+2. Role trust `StringLike` on token `sub` = `"${github_oidc_sub_prefix}:*"` (covers `environment:…` and `ref:…`).
 3. Job uses `aws-actions/configure-aws-credentials` with `role-to-assume`.
 4. STS returns short-lived credentials for that job only.
+
+If assume-role fails with `Not authorized to perform sts:AssumeRoleWithWebIdentity`, check CloudTrail `AssumeRoleWithWebIdentity` → `userName` / `principalId` for the actual `sub`, then update `github_oidc_sub_prefix` in tfvars and re-apply.
 
 | Workflow | Behavior |
 |---|---|
