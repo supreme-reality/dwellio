@@ -1,6 +1,6 @@
 import { auth0 } from "@/lib/auth0";
 import { resolveAppHomePath } from "@/lib/app-home";
-import { fetchMe } from "@/lib/dwellio-api";
+import { DwellioApiError, fetchMe } from "@/lib/dwellio-api";
 import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
@@ -66,9 +66,11 @@ export default async function Home() {
           </a>
         </header>
         <p className="text-sm text-red-700">
-          {error instanceof Error
-            ? error.message
-            : "Failed to load application home"}
+          {error instanceof DwellioApiError
+            ? `${error.message} (HTTP ${error.status}${error.code ? `, ${error.code}` : ""})`
+            : error instanceof Error
+              ? error.message
+              : "Failed to load application home"}
         </p>
         <a href="/onboarding" className="text-sm underline">
           Go to onboarding

@@ -44,11 +44,23 @@ export async function apiFetch<T>(
     let requestId: string | undefined;
     try {
       const json = (await response.json()) as {
-        error?: { code?: string; message?: string; requestId?: string };
+        error?: {
+          code?: string;
+          message?: string;
+          requestId?: string;
+          details?: Record<string, unknown>;
+        };
       };
       code = json.error?.code;
       message = json.error?.message ?? message;
       requestId = json.error?.requestId;
+      const details = json.error?.details;
+      if (details && typeof details === "object") {
+        const reason = details.reason ?? details.cause;
+        if (typeof reason === "string" && reason.trim()) {
+          message = `${message}: ${reason}`;
+        }
+      }
     } catch {
       /* ignore non-JSON error bodies */
     }
