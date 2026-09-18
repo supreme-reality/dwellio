@@ -246,7 +246,7 @@ If assume-role fails with `Not authorized to perform sts:AssumeRoleWithWebIdenti
 | Workflow | Behavior |
 |---|---|
 | `terraform.yml` | PR: fmt / validate / plan; `main`: apply DEV with Environment approval; PROD apply via protected `workflow_dispatch` |
-| `api-deploy.yml` | Build API + worker images → ECR → update ECS (worker image to billing **and** invoice) |
+| `api-deploy.yml` | Build API + worker images → ECR → update ECS (worker image to billing **and** invoice). Push `dev` → DEV ECR/ECS; push `main` → PROD ECR/ECS; `workflow_dispatch` can override. |
 
 **GitHub Variables** (set after first successful Terraform apply that creates roles/ECR):
 
@@ -258,6 +258,10 @@ If assume-role fails with `Not authorized to perform sts:AssumeRoleWithWebIdenti
 | `ECS_CLUSTER_DEV` | `dwellio-dev` |
 | `ECR_API_REPOSITORY_DEV` | output `api_ecr_repository_url` |
 | `ECR_WORKER_REPOSITORY_DEV` | output `worker_ecr_repository_url` |
+| `AWS_ROLE_ARN_DEPLOY_PROD` | prod output `gha_deploy_role_arn` |
+| `ECS_CLUSTER_PROD` | `dwellio-prod` |
+| `ECR_API_REPOSITORY_PROD` | prod output `api_ecr_repository_url` |
+| `ECR_WORKER_REPOSITORY_PROD` | prod output `worker_ecr_repository_url` |
 
 Create GitHub Environments `development` and `production` with required reviewers for apply jobs.
 

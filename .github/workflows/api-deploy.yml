@@ -1,18 +1,27 @@
 # Build API + worker images → ECR → update ECS (api, billing, invoice).
 # Auth: GitHub OIDC → IAM deploy role (no long-lived AWS keys).
 #
-# Required GitHub Variables (after Terraform apply):
+# Branch targeting:
+#   push to `dev`  → DEV ECR + ECS (dwellio-dev-*)
+#   push to `main` → PROD ECR + ECS (dwellio-prod-*)
+#   workflow_dispatch environment input overrides the branch mapping
+#
+# Required GitHub Variables (after Terraform apply per environment):
 #   AWS_REGION=ap-south-1
-#   AWS_ROLE_ARN_DEPLOY_DEV=<output gha_deploy_role_arn>
-#   ECS_CLUSTER_DEV=<output ecs_cluster_name>          e.g. dwellio-dev
-#   ECR_API_REPOSITORY_DEV=<output api_ecr_repository_url>
-#   ECR_WORKER_REPOSITORY_DEV=<output worker_ecr_repository_url>
+#   AWS_ROLE_ARN_DEPLOY_DEV=<dev output gha_deploy_role_arn>
+#   ECS_CLUSTER_DEV=<dev output ecs_cluster_name>                 e.g. dwellio-dev
+#   ECR_API_REPOSITORY_DEV=<dev output api_ecr_repository_url>
+#   ECR_WORKER_REPOSITORY_DEV=<dev output worker_ecr_repository_url>
+#   AWS_ROLE_ARN_DEPLOY_PROD=<prod output gha_deploy_role_arn>
+#   ECS_CLUSTER_PROD=<prod output ecs_cluster_name>               e.g. dwellio-prod
+#   ECR_API_REPOSITORY_PROD=<prod output api_ecr_repository_url>
+#   ECR_WORKER_REPOSITORY_PROD=<prod output worker_ecr_repository_url>
 
 name: API deploy
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths:
       - "apps/api/**"
       - "apps/worker/**"
@@ -35,7 +44,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: api-deploy-${{ github.event.inputs.environment || 'dev' }}
+  group: api-deploy-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.environment || (github.ref == 'refs/heads/main' && 'prod' || 'dev') }}
   cancel-in-progress: false
 
 env:
@@ -45,26 +54,76 @@ jobs:
   deploy:
     name: Build and deploy
     runs-on: ubuntu-latest
-    environment: ${{ github.event.inputs.environment == 'prod' && 'production' || 'development' }}
+    environment: ${{ github.event_name == 'workflow_dispatch' && (github.event.inputs.environment == 'prod' && 'production' || 'development') || (github.ref == 'refs/heads/main' && 'production' || 'development') }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Resolve env config
         id: cfg
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          DISPATCH_ENV: ${{ github.event.inputs.environment }}
+          ROLE_DEV: ${{ vars.AWS_ROLE_ARN_DEPLOY_DEV }}
+          ROLE_PROD: ${{ vars.AWS_ROLE_ARN_DEPLOY_PROD }}
+          CLUSTER_DEV: ${{ vars.ECS_CLUSTER_DEV }}
+          CLUSTER_PROD: ${{ vars.ECS_CLUSTER_PROD }}
+          ECR_API_DEV: ${{ vars.ECR_API_REPOSITORY_DEV }}
+          ECR_API_PROD: ${{ vars.ECR_API_REPOSITORY_PROD }}
+          ECR_WORKER_DEV: ${{ vars.ECR_WORKER_REPOSITORY_DEV }}
+          ECR_WORKER_PROD: ${{ vars.ECR_WORKER_REPOSITORY_PROD }}
         run: |
-          ENV="${{ github.event.inputs.environment || 'dev' }}"
-          echo "env=$ENV" >> "$GITHUB_OUTPUT"
-          if [ "$ENV" = "prod" ]; then
-            echo "role=${{ vars.AWS_ROLE_ARN_DEPLOY_PROD || vars.AWS_ROLE_ARN_DEPLOY_DEV }}" >> "$GITHUB_OUTPUT"
-            echo "cluster=${{ vars.ECS_CLUSTER_PROD }}" >> "$GITHUB_OUTPUT"
-            echo "ecr_api=${{ vars.ECR_API_REPOSITORY_PROD }}" >> "$GITHUB_OUTPUT"
-            echo "ecr_worker=${{ vars.ECR_WORKER_REPOSITORY_PROD }}" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            ENV="$DISPATCH_ENV"
+          elif [ "$GIT_REF" = "refs/heads/main" ]; then
+            ENV="prod"
+          elif [ "$GIT_REF" = "refs/heads/dev" ]; then
+            ENV="dev"
           else
-            echo "role=${{ vars.AWS_ROLE_ARN_DEPLOY_DEV }}" >> "$GITHUB_OUTPUT"
-            echo "cluster=${{ vars.ECS_CLUSTER_DEV }}" >> "$GITHUB_OUTPUT"
-            echo "ecr_api=${{ vars.ECR_API_REPOSITORY_DEV }}" >> "$GITHUB_OUTPUT"
-            echo "ecr_worker=${{ vars.ECR_WORKER_REPOSITORY_DEV }}" >> "$GITHUB_OUTPUT"
+            echo "Unsupported ref for deploy: $GIT_REF" >&2
+            exit 1
           fi
+
+          require() {
+            if [ -z "$1" ]; then
+              echo "Missing required GitHub variable: $2" >&2
+              exit 1
+            fi
+          }
+
+          if [ "$ENV" = "prod" ]; then
+            ROLE="$ROLE_PROD"
+            CLUSTER="$CLUSTER_PROD"
+            ECR_API="$ECR_API_PROD"
+            ECR_WORKER="$ECR_WORKER_PROD"
+            require "$ROLE" AWS_ROLE_ARN_DEPLOY_PROD
+            require "$CLUSTER" ECS_CLUSTER_PROD
+            require "$ECR_API" ECR_API_REPOSITORY_PROD
+            require "$ECR_WORKER" ECR_WORKER_REPOSITORY_PROD
+          else
+            ROLE="$ROLE_DEV"
+            CLUSTER="$CLUSTER_DEV"
+            ECR_API="$ECR_API_DEV"
+            ECR_WORKER="$ECR_WORKER_DEV"
+            require "$ROLE" AWS_ROLE_ARN_DEPLOY_DEV
+            require "$CLUSTER" ECS_CLUSTER_DEV
+            require "$ECR_API" ECR_API_REPOSITORY_DEV
+            require "$ECR_WORKER" ECR_WORKER_REPOSITORY_DEV
+          fi
+
+          echo "Deploy target: $ENV"
+          echo "Cluster: $CLUSTER"
+          echo "ECR API: $ECR_API"
+          echo "ECR worker: $ECR_WORKER"
+
+          {
+            echo "env=$ENV"
+            echo "role=$ROLE"
+            echo "cluster=$CLUSTER"
+            echo "ecr_api=$ECR_API"
+            echo "ecr_worker=$ECR_WORKER"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
