@@ -28,7 +28,7 @@ Manual checklist for local DEV. Org roles live in **our DB**, not Auth0 roles.
 
 | Setting | Local value |
 |---|---|
-| Allowed Callback URLs | `http://localhost:3000/api/auth/callback` |
+| Allowed Callback URLs | `http://localhost:3000/auth/callback` |
 | Allowed Logout URLs | `http://localhost:3000` |
 | Allowed Web Origins | `http://localhost:3000` |
 
@@ -92,14 +92,16 @@ openssl rand -hex 32
 | Purpose | Web (`.env.local`) | API (`application-local.yml`) |
 |---|---|---|
 | Session secret | `AUTH0_SECRET` | — |
-| App base URL | `AUTH0_BASE_URL=http://localhost:3000` | — |
-| Auth0 domain / issuer | `AUTH0_ISSUER_BASE_URL=https://YOUR_DOMAIN` | `spring.security.oauth2.resourceserver.jwt.issuer-uri` |
+| App base URL | `APP_BASE_URL=http://localhost:3000` | — |
+| Auth0 domain | `AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com` | `spring.security.oauth2.resourceserver.jwt.issuer-uri` = `https://YOUR_TENANT.us.auth0.com/` |
 | Client ID | `AUTH0_CLIENT_ID` | — |
 | Client Secret | `AUTH0_CLIENT_SECRET` | — |
-| API audience | `AUTH0_AUDIENCE=https://api.dwellio.local` | `dwellio.auth0.audience` (or Spring `audiences`) |
+| API audience | `AUTH0_AUDIENCE=https://api.dwellio.local` | `dwellio.auth0.audience` |
 | API base for browser | `NEXT_PUBLIC_API_BASE_URL=http://localhost:8080` | — |
 
-Issuer URI must be `https://YOUR_DOMAIN/` (trailing slash is fine; Spring normalizes). Token `iss` must match.
+Auth0 callback for SDK v4: `http://localhost:3000/auth/callback` (not `/api/auth/callback`).
+
+Issuer URI must match token `iss` (trailing slash is fine; Spring normalizes).
 
 ## 7. Verify (human)
 
