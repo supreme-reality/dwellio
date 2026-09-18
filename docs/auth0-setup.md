@@ -110,6 +110,8 @@ Issuer URI must be `https://YOUR_DOMAIN/` (trailing slash is fine; Spring normal
    - `iss` matches your tenant issuer
    - Prefer presence of `email` (and `name`) after the optional Action
 
+Without the optional Action, Auth0 access tokens often omit `email`. `GET /api/v1/me` requires an email claim (or a namespaced claim ending in `/email`) and returns 401 if missing.
+
 ```bash
 # After Task 5 is implemented:
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/me
