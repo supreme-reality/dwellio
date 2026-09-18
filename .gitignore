@@ -1,0 +1,43 @@
+# Worktrees
+.worktrees/
+worktrees/
+
+# Gradle
+.gradle/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+.DS_Store
+
+# Node / Next.js
+node_modules/
+apps/web/.next/
+apps/web/out/
+apps/web/.env*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# Env / secrets
+.env
+.env.*
+!.env*.example
+*.pem
+
+# Java
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.log
+
+# Docker
+postgres-data/
+
+# OS
+Thumbs.db
