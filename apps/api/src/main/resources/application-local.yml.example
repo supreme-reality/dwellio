@@ -1,0 +1,16 @@
+# Copy to application-local.yml (gitignored via spring profile local secrets — keep secrets out of git).
+# Activate with: SPRING_PROFILES_ACTIVE=local
+# Or merge these keys into your local run config.
+
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          # Auth0 Domain → https://YOUR_TENANT.REGION.auth0.com/
+          issuer-uri: https://YOUR_TENANT.us.auth0.com/
+
+dwellio:
+  auth0:
+    # Must match Auth0 API Identifier
+    audience: https://api.dwellio.local
