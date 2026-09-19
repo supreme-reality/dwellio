@@ -29,7 +29,7 @@ Open [http://localhost:3000](http://localhost:3000) → Log in. Signed-in users 
 
 ## App routes (URL context)
 
-- `/onboarding` — create organization
+- `/onboarding` — create organization (header: user + Log out)
 - `/o/[orgId]` — org home / create property; empty list is valid for Members with no assignments
 - `/o/[orgId]/p/[propertyId]/…` — property shell (Stay / Money / Ops / Insights / Admin)
 

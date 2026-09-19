@@ -1,3 +1,4 @@
+import { AuthHeader } from "@/components/shell/auth-header";
 import { auth0 } from "@/lib/auth0";
 import { resolveAppHomePath } from "@/lib/app-home";
 import { DwellioApiError, fetchMe } from "@/lib/dwellio-api";
@@ -49,33 +50,24 @@ export default async function Home() {
       throw error;
     }
 
+    const userLabel = session.user.email ?? session.user.name ?? "Signed in";
+
     return (
-      <main className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-6 p-8">
-        <header className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Dwellio</h1>
-            <p className="mt-1 text-sm text-neutral-600">
-              Signed in as {session.user.email ?? session.user.name ?? "user"}
-            </p>
-          </div>
-          <a
-            href="/auth/logout"
-            className="rounded-md border border-neutral-300 px-3 py-1.5 text-sm hover:bg-neutral-50"
-          >
-            Log out
+      <div className="min-h-screen bg-neutral-50">
+        <AuthHeader userLabel={userLabel} />
+        <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-8">
+          <p className="text-sm text-red-700">
+            {error instanceof DwellioApiError
+              ? `${error.message} (HTTP ${error.status}${error.code ? `, ${error.code}` : ""})`
+              : error instanceof Error
+                ? error.message
+                : "Failed to load application home"}
+          </p>
+          <a href="/onboarding" className="text-sm underline">
+            Go to onboarding
           </a>
-        </header>
-        <p className="text-sm text-red-700">
-          {error instanceof DwellioApiError
-            ? `${error.message} (HTTP ${error.status}${error.code ? `, ${error.code}` : ""})`
-            : error instanceof Error
-              ? error.message
-              : "Failed to load application home"}
-        </p>
-        <a href="/onboarding" className="text-sm underline">
-          Go to onboarding
-        </a>
-      </main>
+        </main>
+      </div>
     );
   }
 }

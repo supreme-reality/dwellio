@@ -1,4 +1,5 @@
 import { AppShell } from "@/components/shell/app-shell";
+import { AuthHeader } from "@/components/shell/auth-header";
 import { OrgSwitcher } from "@/components/shell/org-switcher";
 import { PropertySwitcher } from "@/components/shell/property-switcher";
 import { SidebarNav } from "@/components/shell/sidebar-nav";
@@ -18,6 +19,7 @@ export default async function PropertyLayout({
   const { orgId, propertyId } = await params;
   const session = await requireSession();
   const token = await requireAccessToken();
+  const userLabel = session.user.email ?? session.user.name ?? "Signed in";
 
   try {
     const [organizations, organization, properties, property] =
@@ -30,15 +32,18 @@ export default async function PropertyLayout({
 
     if (property.organizationId !== orgId) {
       return (
-        <Alert tone="error">
-          Property does not belong to this organization.
-        </Alert>
+        <div className="min-h-screen bg-neutral-50">
+          <AuthHeader brandHref={`/o/${orgId}`} userLabel={userLabel} />
+          <main className="mx-auto max-w-lg p-8">
+            <Alert tone="error">
+              Property does not belong to this organization.
+            </Alert>
+          </main>
+        </div>
       );
     }
 
     const isOwner = organization.role === "OWNER";
-    const userLabel =
-      session.user.email ?? session.user.name ?? "Signed in";
 
     return (
       <AppShell
@@ -68,11 +73,14 @@ export default async function PropertyLayout({
   } catch (error) {
     if (error instanceof DwellioApiError) {
       return (
-        <main className="mx-auto max-w-lg p-8">
-          <Alert tone="error" requestId={error.requestId}>
-            {error.message}
-          </Alert>
-        </main>
+        <div className="min-h-screen bg-neutral-50">
+          <AuthHeader brandHref={`/o/${orgId}`} userLabel={userLabel} />
+          <main className="mx-auto max-w-lg p-8">
+            <Alert tone="error" requestId={error.requestId}>
+              {error.message}
+            </Alert>
+          </main>
+        </div>
       );
     }
     throw error;
