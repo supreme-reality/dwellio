@@ -68,8 +68,8 @@ Supersedes UI Style Guide v1.3.
 
 ## 7. Documents, notices, tickets
 
-- Document status labels: Pending upload ? Uploaded ? Archived.  
-- Notices: Markdown; no raw HTML editing.  
+- Document status labels: Pending upload → Uploaded (delete action; no Archived).  
+- Notices: Markdown; draft/publish/delete; no raw HTML editing.  
 - Tickets: status badges Open / In progress / Resolved / Closed.
 
 ---
@@ -91,7 +91,7 @@ Same as UX v5.0 exclusions.
 ## 10. Version change — v1.3 ? v5.0
 
 - Bed block UI patterns.  
-- Document status vocabulary.  
+- Document status vocabulary (Pending upload / Uploaded; delete).  
 - Tickets UI.  
 - Explicit new-Tenancy move-in copy.  
 - Aligned to v5.0 controlled pack.

@@ -77,8 +77,8 @@ Deposit stays with Tenancy; no transfer refund UI.
 
 ## 8. Documents, notices, tickets
 
-- Documents: uploading ? uploaded ? archived (match API statuses in labels).  
-- Notices: property Markdown; no targeting/groups/receipts.  
+- Documents: uploading → uploaded; delete removes file (labels match API; no Archived).  
+- Notices: property Markdown; draft/publish/delete; no targeting/groups/receipts.  
 - Tickets: property list/detail; statuses Open / In progress / Resolved / Closed.
 
 ---
@@ -92,7 +92,7 @@ Deposit stays with Tenancy; no transfer refund UI.
 
 ## 10. MVP UX exclusions
 
-Transfer history resource UI; bed-tied services; meter UI; ALLOCATION; transfer refund; Complete Move-In; partial pay; manual allocation; Run Billing; historical block history; notice targeting; taxes; Razorpay deposit payout.
+Transfer history resource UI; bed-tied services; meter UI; ALLOCATION; transfer refund; Complete Move-In; partial pay; manual allocation; Run Billing; historical block history; notice targeting; notice/document archive; taxes; Razorpay deposit payout.
 
 ---
 
@@ -101,6 +101,7 @@ Transfer history resource UI; bed-tied services; meter UI; ALLOCATION; transfer 
 - Bed block/unblock UX + availability labels.  
 - Tenancy-scoped services views.  
 - Document upload status labels.  
+- Notice/document delete (no archive).  
 - Tickets journeys.  
 - Org-scoped tenant identity called out.  
 - Pack alignment to v5.0.

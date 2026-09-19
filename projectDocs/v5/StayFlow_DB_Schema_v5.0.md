@@ -362,9 +362,9 @@ Confirmed checkout closes ACTIVE Occupancy, sets Tenancy `CHECKED_OUT`, ends ACT
 | property_id | UUID | NO | FK |
 | title | VARCHAR(200) | NO | |
 | body | TEXT | NO | **Markdown** |
-| status | VARCHAR(20) | NO | `DRAFT` / `PUBLISHED` / `ARCHIVED` |
+| status | VARCHAR(20) | NO | **`DRAFT` / `PUBLISHED`** (no `ARCHIVED` in MVP — use hard DELETE) |
 | published_at | TIMESTAMPTZ | YES | |
-| expires_at | TIMESTAMPTZ | YES | |
+| expires_at | TIMESTAMPTZ | YES | Optional; filtering not required in MVP |
 | created_at | TIMESTAMPTZ | NO | |
 | updated_at | TIMESTAMPTZ | NO | |
 
@@ -381,18 +381,42 @@ Confirmed checkout closes ACTIVE Occupancy, sets Tenancy `CHECKED_OUT`, ends ACT
 | storage_key | TEXT | NO | Object-storage key |
 | content_type | VARCHAR(120) | YES | |
 | size_bytes | BIGINT | YES | |
-| status | VARCHAR(20) | NO | **`PENDING_UPLOAD` / `UPLOADED` / `ARCHIVED`** |
+| status | VARCHAR(20) | NO | **`PENDING_UPLOAD` / `UPLOADED`** (no `ARCHIVED` in MVP — use hard DELETE) |
 | created_at | TIMESTAMPTZ | NO | |
 | updated_at | TIMESTAMPTZ | NO | |
 
-- Create upload intent ? `PENDING_UPLOAD`.  
-- Backend `HeadObject` verification on complete ? `UPLOADED`.  
-- Archive ? `ARCHIVED`.  
-- **`ACTIVE` is not a document status** (removed vs v1.5).
+- Create upload intent → `PENDING_UPLOAD`.  
+- Backend `HeadObject` verification on complete → `UPLOADED`.  
+- Hard DELETE removes DB row + best-effort S3 object.  
+- **`ACTIVE` / `ARCHIVED` are not MVP document statuses.**
 
-### 12.3 `expense_type` · 12.4 `expense`
+### 12.3 `expense_type`
 
-Unchanged from v1.5 (property-scoped categories and expense rows).
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | UUID | NO | PK |
+| property_id | UUID | NO | FK → property.id |
+| name | VARCHAR(100) | NO | Unique per `property_id` |
+| active | BOOLEAN | NO | Default `true` |
+| created_at | TIMESTAMPTZ | NO | |
+| updated_at | TIMESTAMPTZ | NO | |
+
+### 12.4 `expense`
+
+| Column | Type | Null | Notes |
+|---|---|---|---|
+| id | UUID | NO | PK |
+| property_id | UUID | NO | FK → property.id |
+| expense_type_id | UUID | NO | FK → expense_type.id |
+| amount | NUMERIC(12,2) | NO | `> 0` |
+| currency | CHAR(3) | NO | From property `default_currency` at create (or request if allowed) |
+| incurred_on | DATE | NO | |
+| notes | TEXT | YES | |
+| created_by_user_id | UUID | NO | FK → app_user.id |
+| created_at | TIMESTAMPTZ | NO | |
+| updated_at | TIMESTAMPTZ | NO | |
+
+Property-scoped; hard DELETE allowed (ops expenses are not financial-immutable like invoices/payments).
 
 ### 12.5 `ticket` — **new in v5**
 
@@ -409,7 +433,7 @@ Unchanged from v1.5 (property-scoped categories and expense rows).
 | updated_at | TIMESTAMPTZ | NO | |
 
 Property-scoped; authorization follows organization/property membership.  
-`assigned_to_user_id` references `app_user` (not `property_membership`). On member deactivate or manager removal, ticket rows are **not** deleted; when implemented, clear `assigned_to_user_id` for `OPEN` / `IN_PROGRESS` tickets assigned to that user on affected properties.
+`assigned_to_user_id` references `app_user` (not `property_membership`). When set, assignee must be org Owner or a Manager on that property (API 422 otherwise). On member deactivate or manager removal, ticket rows are **not** deleted; clear `assigned_to_user_id` for `OPEN` / `IN_PROGRESS` tickets assigned to that user on affected properties.
 
 ---
 
@@ -441,6 +465,7 @@ Property-scoped; authorization follows organization/property membership.
 - Viewer role (MVP is Owner + Manager only)  
 - Taxes  
 - Future bed reservation model  
+- Notice / document `ARCHIVED` status (hard DELETE instead)  
 
 ---
 
@@ -449,7 +474,8 @@ Property-scoped; authorization follows organization/property membership.
 - Added `ticket` persistence.  
 - Added bed blocking columns and derived `AVAILABLE` / `OCCUPIED` / `BLOCKED` availability.  
 - Added mandatory `tenant.organization_id` and org-scoped uniqueness.  
-- Replaced document `ACTIVE`/`ARCHIVED` with `PENDING_UPLOAD` / `UPLOADED` / `ARCHIVED`.  
+- Document statuses: `PENDING_UPLOAD` / `UPLOADED` + hard DELETE (no `ARCHIVED` in MVP).  
+- Inlined `expense_type` / `expense` columns; notice statuses `DRAFT` / `PUBLISHED` only.  
 - Org membership = `OWNER` / `MEMBER`; property assignment = `MANAGER` only (no Viewer in MVP).  
 - Owner-only admin for properties and memberships; Managers cannot add managers or properties.  
 - Occupied beds may be blocked.  
