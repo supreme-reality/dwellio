@@ -34,6 +34,10 @@ spring:
 dwellio:
   auth0:
     audience: ${AUTH0_AUDIENCE:https://api.dwellio.local}
+  razorpay:
+    webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+    key-id: ${RAZORPAY_KEY_ID:}
+    key-secret: ${RAZORPAY_KEY_SECRET:}
 
 management:
   endpoints:

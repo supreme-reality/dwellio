@@ -10,3 +10,5 @@ spring:
 dwellio:
   auth0:
     audience: https://api.dwellio.local
+  razorpay:
+    webhook-secret: test-razorpay-webhook-secret

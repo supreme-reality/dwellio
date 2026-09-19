@@ -84,6 +84,49 @@ public class PropertyAccessService {
         requireInventoryMutator(user, property.getId());
     }
 
+    /**
+     * Owner, or MEMBER with at least one manager assignment in the org, may read org-scoped tenants.
+     * Callers should map false / membership miss to NOT_FOUND for the resource.
+     */
+    public boolean canReadAnyPropertyInOrg(AppUserEntity user, UUID organizationId) {
+        OrganizationMembershipEntity membership;
+        try {
+            membership = organizationAccessService.requireActiveMembership(organizationId, user.getId());
+        } catch (ApiException ex) {
+            return false;
+        }
+        if ("OWNER".equals(membership.getRole())) {
+            return true;
+        }
+        return propertyMembershipRepository.existsActiveManagerAssignmentInOrg(organizationId, user.getId());
+    }
+
+    /**
+     * Owner or assigned Manager may mutate org-scoped tenants (same bar as inventory writes).
+     * Returns false when the user is not an org member or has no assignment.
+     */
+    public boolean canMutateAnyPropertyInOrg(AppUserEntity user, UUID organizationId) {
+        OrganizationMembershipEntity membership;
+        try {
+            membership = organizationAccessService.requireActiveMembership(organizationId, user.getId());
+        } catch (ApiException ex) {
+            return false;
+        }
+        if ("OWNER".equals(membership.getRole())) {
+            return true;
+        }
+        return propertyMembershipRepository.existsActiveManagerAssignmentInOrg(organizationId, user.getId());
+    }
+
+    public boolean isOrgMember(AppUserEntity user, UUID organizationId) {
+        try {
+            organizationAccessService.requireActiveMembership(organizationId, user.getId());
+            return true;
+        } catch (ApiException ex) {
+            return false;
+        }
+    }
+
     private static ApiException notFound() {
         return new ApiException(ErrorCode.NOT_FOUND, HttpStatus.NOT_FOUND, "Property not found");
     }
