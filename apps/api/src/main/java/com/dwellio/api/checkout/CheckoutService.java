@@ -16,8 +16,9 @@ import com.dwellio.api.property.PropertyAccessService;
 import com.dwellio.api.property.PropertyEntity;
 import com.dwellio.api.rent.RentConfigService;
 import com.dwellio.api.rent.ResolvedRentResponse;
-import com.dwellio.api.service.ServiceChargeEntity;
 import com.dwellio.api.service.ServiceChargeRepository;
+import com.dwellio.api.service.ServiceConfigEntity;
+import com.dwellio.api.service.ServiceConfigRepository;
 import com.dwellio.api.service.ServiceEnrollmentEntity;
 import com.dwellio.api.service.ServiceEnrollmentRepository;
 import com.dwellio.api.service.ServiceCatalogRepository;
@@ -58,6 +59,7 @@ public class CheckoutService {
     private final ServiceEnrollmentRepository enrollmentRepository;
     private final ServiceChargeRepository chargeRepository;
     private final ServiceCatalogRepository serviceCatalogRepository;
+    private final ServiceConfigRepository serviceConfigRepository;
 
     public CheckoutService(
             TenancyRepository tenancyRepository,
@@ -73,7 +75,8 @@ public class CheckoutService {
             RentConfigService rentConfigService,
             ServiceEnrollmentRepository enrollmentRepository,
             ServiceChargeRepository chargeRepository,
-            ServiceCatalogRepository serviceCatalogRepository
+            ServiceCatalogRepository serviceCatalogRepository,
+            ServiceConfigRepository serviceConfigRepository
     ) {
         this.tenancyRepository = tenancyRepository;
         this.occupancyRepository = occupancyRepository;
@@ -89,6 +92,7 @@ public class CheckoutService {
         this.enrollmentRepository = enrollmentRepository;
         this.chargeRepository = chargeRepository;
         this.serviceCatalogRepository = serviceCatalogRepository;
+        this.serviceConfigRepository = serviceConfigRepository;
     }
 
     @Transactional(readOnly = true)
@@ -339,9 +343,30 @@ public class CheckoutService {
 
         BigDecimal damages = moneyOrZero(damagesAmount);
         BigDecimal manual = moneyOrZero(manualChargesAmount);
-        BigDecimal rentProration = computeRentProration(user, ctx);
-        BigDecimal variable = computeUnbilledVariableCharges(ctx.tenancy().getId());
-        BigDecimal newCharges = rentProration.add(damages).add(manual).add(variable).setScale(2, RoundingMode.HALF_UP);
+        LocalDate period = LocalDate.now().withDayOfMonth(1);
+        boolean hasMonthly = invoiceRepository.existsFinalizedMonthly(ctx.tenancy().getId(), period);
+
+        BigDecimal rentProration = zero();
+        BigDecimal variable = zero();
+        BigDecimal fixedArrears = zero();
+        List<UnbilledVariable> unbilledVariables = List.of();
+
+        if (!hasMonthly) {
+            rentProration = computeRentProration(user, ctx);
+            unbilledVariables = collectUnbilledVariableCharges(ctx.tenancy().getId(), period);
+            variable = unbilledVariables.stream()
+                    .map(UnbilledVariable::amount)
+                    .reduce(zero(), BigDecimal::add)
+                    .setScale(2, RoundingMode.HALF_UP);
+            fixedArrears = computeUnbilledFixedMonthlyArrears(ctx.tenancy().getId(), period);
+        }
+
+        BigDecimal newCharges = rentProration
+                .add(damages)
+                .add(manual)
+                .add(variable)
+                .add(fixedArrears)
+                .setScale(2, RoundingMode.HALF_UP);
 
         BigDecimal depositBefore = depositService.balanceOf(ctx.tenancy().getId()).setScale(2, RoundingMode.HALF_UP);
         BigDecimal totalReceivable = outstanding.add(newCharges).setScale(2, RoundingMode.HALF_UP);
@@ -356,6 +381,8 @@ public class CheckoutService {
                 damages,
                 manual,
                 variable,
+                fixedArrears,
+                unbilledVariables,
                 depositBefore,
                 deduction,
                 refundDue,
@@ -367,16 +394,6 @@ public class CheckoutService {
 
     private BigDecimal computeRentProration(AppUserEntity user, CheckoutContext ctx) {
         LocalDate today = LocalDate.now();
-        LocalDate periodStart = today.withDayOfMonth(1);
-        boolean monthlyExists = invoiceRepository
-                .findByTenancyIdOrderByBillingDateDescCreatedAtDesc(ctx.tenancy().getId())
-                .stream()
-                .anyMatch(i -> "MONTHLY".equals(i.getInvoiceType())
-                        && "FINALIZED".equals(i.getStatus())
-                        && periodStart.equals(i.getBillingPeriod()));
-        if (monthlyExists) {
-            return zero();
-        }
         try {
             ResolvedRentResponse rent = rentConfigService.resolve(
                     user,
@@ -398,12 +415,10 @@ public class CheckoutService {
         }
     }
 
-    private BigDecimal computeUnbilledVariableCharges(UUID tenancyId) {
-        LocalDate period = LocalDate.now().withDayOfMonth(1);
-        BigDecimal total = zero();
-        List<ServiceEnrollmentEntity> enrollments =
-                enrollmentRepository.findByTenancyIdOrderByCreatedAtDesc(tenancyId);
-        for (ServiceEnrollmentEntity enrollment : enrollments) {
+    private List<UnbilledVariable> collectUnbilledVariableCharges(UUID tenancyId, LocalDate period) {
+        List<UnbilledVariable> result = new ArrayList<>();
+        for (ServiceEnrollmentEntity enrollment :
+                enrollmentRepository.findByTenancyIdOrderByCreatedAtDesc(tenancyId)) {
             if (!"ACTIVE".equals(enrollment.getStatus())) {
                 continue;
             }
@@ -411,11 +426,47 @@ public class CheckoutService {
             if (service == null || !"VARIABLE".equals(service.getBillingType())) {
                 continue;
             }
-            total = total.add(
-                    chargeRepository.findByServiceEnrollmentIdAndBillingPeriod(enrollment.getId(), period)
-                            .map(ServiceChargeEntity::getAmount)
-                            .orElse(zero())
-            );
+            chargeRepository.findByServiceEnrollmentIdAndBillingPeriod(enrollment.getId(), period)
+                    .ifPresent(charge -> {
+                        if (charge.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                            return;
+                        }
+                        if (invoiceLineItemRepository.existsFinalizedByReferenceId(charge.getId())) {
+                            return;
+                        }
+                        result.add(new UnbilledVariable(
+                                charge.getId(),
+                                service.getName() + " (variable)",
+                                charge.getAmount().setScale(2, RoundingMode.HALF_UP)
+                        ));
+                    });
+        }
+        return result;
+    }
+
+    private BigDecimal computeUnbilledFixedMonthlyArrears(UUID tenancyId, LocalDate period) {
+        BigDecimal total = zero();
+        for (ServiceEnrollmentEntity enrollment :
+                enrollmentRepository.findByTenancyIdOrderByCreatedAtDesc(tenancyId)) {
+            if (!"ACTIVE".equals(enrollment.getStatus())) {
+                continue;
+            }
+            ServiceEntity service = serviceCatalogRepository.findById(enrollment.getServiceId()).orElse(null);
+            if (service == null
+                    || !"ACTIVE".equals(service.getStatus())
+                    || !"FIXED".equals(service.getBillingType())
+                    || !"MONTHLY_ARREARS".equals(service.getBillingTiming())) {
+                continue;
+            }
+            BigDecimal amount = serviceConfigRepository.findByServiceIdOrderByEffectiveFromDesc(service.getId()).stream()
+                    .filter(c -> !c.getEffectiveFrom().isAfter(period)
+                            && (c.getEffectiveTo() == null || c.getEffectiveTo().isAfter(period)))
+                    .findFirst()
+                    .map(ServiceConfigEntity::getAmount)
+                    .orElse(zero());
+            if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                total = total.add(amount);
+            }
         }
         return total.setScale(2, RoundingMode.HALF_UP);
     }
@@ -445,19 +496,36 @@ public class CheckoutService {
 
         List<InvoiceLineItemEntity> lines = new ArrayList<>();
         if (math.rentProration().compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line(invoice.getId(), "RENT", "Checkout rent proration", math.rentProration(), now));
+            lines.add(line(invoice.getId(), "RENT", "Checkout rent proration", math.rentProration(), null, now));
         }
-        if (math.variableChargesAmount().compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line(invoice.getId(), "SERVICE", "Unbilled variable services", math.variableChargesAmount(), now));
+        for (UnbilledVariable variable : math.unbilledVariables()) {
+            lines.add(line(
+                    invoice.getId(),
+                    "SERVICE",
+                    variable.description(),
+                    variable.amount(),
+                    variable.chargeId(),
+                    now
+            ));
+        }
+        if (math.fixedMonthlyArrearsAmount().compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(
+                    invoice.getId(),
+                    "SERVICE",
+                    "Unbilled fixed monthly arrears",
+                    math.fixedMonthlyArrearsAmount(),
+                    null,
+                    now
+            ));
         }
         if (math.damagesAmount().compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line(invoice.getId(), "DAMAGE", "Checkout damages", math.damagesAmount(), now));
+            lines.add(line(invoice.getId(), "DAMAGE", "Checkout damages", math.damagesAmount(), null, now));
         }
         if (math.manualChargesAmount().compareTo(BigDecimal.ZERO) > 0) {
-            lines.add(line(invoice.getId(), "OTHER", "Checkout manual charges", math.manualChargesAmount(), now));
+            lines.add(line(invoice.getId(), "OTHER", "Checkout manual charges", math.manualChargesAmount(), null, now));
         }
         if (lines.isEmpty() && amount.compareTo(BigDecimal.ZERO) == 0) {
-            lines.add(line(invoice.getId(), "OTHER", "Checkout (no new charges)", zero(), now));
+            lines.add(line(invoice.getId(), "OTHER", "Checkout (no new charges)", zero(), null, now));
         }
         invoiceLineItemRepository.saveAll(lines);
         return invoice;
@@ -468,6 +536,7 @@ public class CheckoutService {
             String type,
             String description,
             BigDecimal amount,
+            UUID referenceId,
             Instant now
     ) {
         return new InvoiceLineItemEntity(
@@ -478,7 +547,7 @@ public class CheckoutService {
                 BigDecimal.ONE,
                 amount,
                 amount,
-                null,
+                referenceId,
                 now
         );
     }
@@ -506,6 +575,7 @@ public class CheckoutService {
                 math.damagesAmount(),
                 math.manualChargesAmount(),
                 math.variableChargesAmount(),
+                math.fixedMonthlyArrearsAmount(),
                 math.depositBalanceBefore(),
                 math.depositDeduction(),
                 math.depositRefundDue(),
@@ -530,6 +600,9 @@ public class CheckoutService {
     private record CheckoutContext(TenancyEntity tenancy, PropertyEntity property, OccupancyEntity occupancy) {
     }
 
+    private record UnbilledVariable(UUID chargeId, String description, BigDecimal amount) {
+    }
+
     private record SettlementMath(
             BigDecimal outstandingReceivables,
             BigDecimal newCheckoutCharges,
@@ -537,6 +610,8 @@ public class CheckoutService {
             BigDecimal damagesAmount,
             BigDecimal manualChargesAmount,
             BigDecimal variableChargesAmount,
+            BigDecimal fixedMonthlyArrearsAmount,
+            List<UnbilledVariable> unbilledVariables,
             BigDecimal depositBalanceBefore,
             BigDecimal depositDeduction,
             BigDecimal depositRefundDue,

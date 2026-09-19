@@ -18,3 +18,8 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: none
+
+dwellio:
+  invoice-worker:
+    poll-enabled: true
+    poll-delay-ms: 5000

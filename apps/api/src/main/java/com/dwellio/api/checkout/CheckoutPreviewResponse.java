@@ -12,6 +12,7 @@ public record CheckoutPreviewResponse(
         BigDecimal damagesAmount,
         BigDecimal manualChargesAmount,
         BigDecimal variableChargesAmount,
+        BigDecimal fixedMonthlyArrearsAmount,
         BigDecimal depositBalanceBefore,
         BigDecimal depositDeduction,
         BigDecimal depositRefundDue,

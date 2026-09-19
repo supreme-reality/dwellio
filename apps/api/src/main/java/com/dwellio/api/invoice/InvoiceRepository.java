@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -13,6 +14,30 @@ public interface InvoiceRepository extends JpaRepository<InvoiceEntity, UUID> {
     List<InvoiceEntity> findByIdIn(Collection<UUID> ids);
 
     List<InvoiceEntity> findByTenancyIdOrderByBillingDateDescCreatedAtDesc(UUID tenancyId);
+
+    @Query("""
+            select (count(i) > 0) from InvoiceEntity i
+            where i.tenancyId = :tenancyId
+              and i.invoiceType = 'MONTHLY'
+              and i.billingPeriod = :billingPeriod
+              and i.status <> 'VOID'
+            """)
+    boolean existsNonVoidMonthly(
+            @Param("tenancyId") UUID tenancyId,
+            @Param("billingPeriod") LocalDate billingPeriod
+    );
+
+    @Query("""
+            select (count(i) > 0) from InvoiceEntity i
+            where i.tenancyId = :tenancyId
+              and i.invoiceType = 'MONTHLY'
+              and i.billingPeriod = :billingPeriod
+              and i.status = 'FINALIZED'
+            """)
+    boolean existsFinalizedMonthly(
+            @Param("tenancyId") UUID tenancyId,
+            @Param("billingPeriod") LocalDate billingPeriod
+    );
 
     @Query("""
             select i from InvoiceEntity i

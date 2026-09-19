@@ -105,6 +105,7 @@ class BillingWorkerIT {
         billingFanOutService.fanOut(period);
         var first = monthlyInvoiceCreationService.processPendingItems();
         org.junit.jupiter.api.Assertions.assertTrue(first.processed() >= 1);
+        org.junit.jupiter.api.Assertions.assertEquals(0, first.failed());
 
         mockMvc.perform(get("/api/v1/tenancies/" + fx.tenancyId + "/invoices")
                         .header("Authorization", "Bearer " + ownerToken))
@@ -125,7 +126,81 @@ class BillingWorkerIT {
                         org.hamcrest.Matchers.hasSize(1)));
     }
 
+    @Test
+    void processPending_bindsVariableChargeReference_andCheckoutDoesNotDoubleBill() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStay(ownerToken);
+        LocalDate period = LocalDate.now().withDayOfMonth(1);
+
+        String serviceId = createVariableService(ownerToken, fx.propertyId);
+        String enrollmentId = enrollService(ownerToken, fx.tenancyId, serviceId);
+        mockMvc.perform(post("/api/v1/service-enrollments/" + enrollmentId + "/charges")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"billingPeriod":"%s","amount":450.00,"note":"usage"}
+                                """.formatted(period)))
+                .andExpect(status().isCreated());
+
+        billingFanOutService.fanOut(period);
+        var result = monthlyInvoiceCreationService.processPendingItems();
+        org.junit.jupiter.api.Assertions.assertTrue(result.processed() >= 1);
+
+        mockMvc.perform(post("/api/v1/checkout/preview")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"tenancyId":"%s","damagesAmount":0,"manualChargesAmount":0}
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.variableChargesAmount").value(0.00))
+                .andExpect(jsonPath("$.rentProration").value(0.00))
+                .andExpect(jsonPath("$.fixedMonthlyArrearsAmount").value(0.00))
+                .andExpect(jsonPath("$.outstandingReceivables").value(org.hamcrest.Matchers.greaterThan(0.0)));
+    }
+
+    @Test
+    void checkoutWithoutMonthly_includesFullFixedArrearsAndUnbilledVariable() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStayWithRent(ownerToken, "0.00");
+        LocalDate period = LocalDate.now().withDayOfMonth(1);
+
+        String mealId = createFixedArrearsService(ownerToken, fx.propertyId, "Meals", "3000.00");
+        enrollService(ownerToken, fx.tenancyId, mealId);
+
+        String laundryId = createVariableService(ownerToken, fx.propertyId);
+        String enrollmentId = enrollService(ownerToken, fx.tenancyId, laundryId);
+        mockMvc.perform(post("/api/v1/service-enrollments/" + enrollmentId + "/charges")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"billingPeriod":"%s","amount":450.00}
+                                """.formatted(period)))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/v1/checkout/preview")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tenancyId":"%s",
+                                  "damagesAmount":100.00,
+                                  "manualChargesAmount":0
+                                }
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.outstandingReceivables").value(0.00))
+                .andExpect(jsonPath("$.fixedMonthlyArrearsAmount").value(3000.00))
+                .andExpect(jsonPath("$.variableChargesAmount").value(450.00))
+                .andExpect(jsonPath("$.damagesAmount").value(100.00))
+                .andExpect(jsonPath("$.newCheckoutCharges").value(3550.00));
+    }
+
     private Stay seedActiveStay(String ownerToken) throws Exception {
+        return seedActiveStayWithRent(ownerToken, "10000.00");
+    }
+
+    private Stay seedActiveStayWithRent(String ownerToken, String rentAmount) throws Exception {
         String orgId = createOrg(ownerToken, "Bill Org " + UUID.randomUUID());
         String propertyId = createProperty(ownerToken, orgId, "House");
         String roomId = createRoom(ownerToken, propertyId, "R1");
@@ -136,8 +211,8 @@ class BillingWorkerIT {
                         .header("Authorization", "Bearer " + ownerToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"amount":10000.00,"effectiveFrom":"%s"}
-                                """.formatted(LocalDate.now().minusDays(30))))
+                                {"amount":%s,"effectiveFrom":"%s"}
+                                """.formatted(rentAmount, LocalDate.now().minusDays(30))))
                 .andExpect(status().isCreated());
 
         MvcResult create = mockMvc.perform(post("/api/v1/properties/" + propertyId + "/move-ins")
@@ -167,7 +242,72 @@ class BillingWorkerIT {
                                 """))
                 .andExpect(status().isOk());
 
-        return new Stay(tenancyId);
+        return new Stay(tenancyId, propertyId);
+    }
+
+    private String createVariableService(String token, String propertyId) throws Exception {
+        MvcResult serviceCreate = mockMvc.perform(post("/api/v1/properties/" + propertyId + "/services")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"Laundry-%s",
+                                  "billingType":"VARIABLE",
+                                  "billingTiming":"MONTHLY_ARREARS",
+                                  "mandatory":false,
+                                  "prorationSetting":"NONE"
+                                }
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String serviceId = com.jayway.jsonpath.JsonPath.read(serviceCreate.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(post("/api/v1/services/" + serviceId + "/config")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amount":0.00,"effectiveFrom":"%s"}
+                                """.formatted(LocalDate.now().minusDays(30))))
+                .andExpect(status().isCreated());
+        return serviceId;
+    }
+
+    private String createFixedArrearsService(String token, String propertyId, String name, String amount)
+            throws Exception {
+        MvcResult serviceCreate = mockMvc.perform(post("/api/v1/properties/" + propertyId + "/services")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "name":"%s-%s",
+                                  "billingType":"FIXED",
+                                  "billingTiming":"MONTHLY_ARREARS",
+                                  "mandatory":false,
+                                  "prorationSetting":"NONE"
+                                }
+                                """.formatted(name, UUID.randomUUID())))
+                .andExpect(status().isCreated())
+                .andReturn();
+        String serviceId = com.jayway.jsonpath.JsonPath.read(serviceCreate.getResponse().getContentAsString(), "$.id");
+        mockMvc.perform(post("/api/v1/services/" + serviceId + "/config")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"amount":%s,"effectiveFrom":"%s"}
+                                """.formatted(amount, LocalDate.now().minusDays(30))))
+                .andExpect(status().isCreated());
+        return serviceId;
+    }
+
+    private String enrollService(String token, String tenancyId, String serviceId) throws Exception {
+        MvcResult enroll = mockMvc.perform(post("/api/v1/tenancies/" + tenancyId + "/services")
+                        .header("Authorization", "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"serviceId":"%s","startedAt":"%s"}
+                                """.formatted(serviceId, LocalDate.now().minusDays(5))))
+                .andExpect(status().isCreated())
+                .andReturn();
+        return com.jayway.jsonpath.JsonPath.read(enroll.getResponse().getContentAsString(), "$.id");
     }
 
     private String createOrg(String token, String name) throws Exception {
@@ -230,7 +370,7 @@ class BillingWorkerIT {
         return com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.id");
     }
 
-    private record Stay(String tenancyId) {
+    private record Stay(String tenancyId, String propertyId) {
     }
 
     private static String mintToken(String email, String name) throws Exception {
