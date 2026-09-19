@@ -7,6 +7,7 @@ public record BedResponse(
         UUID roomId,
         String name,
         String status,
-        String availability
+        String availability,
+        String blockReason
 ) {
 }

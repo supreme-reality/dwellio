@@ -154,7 +154,8 @@ public class BedService {
                 bed.getRoomId(),
                 bed.getName(),
                 bed.getStatus(),
-                availability
+                availability,
+                bed.getBlockReason()
         );
     }
 }
