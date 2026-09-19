@@ -2,7 +2,9 @@ package com.dwellio.api.org;
 
 import com.dwellio.api.common.ApiException;
 import com.dwellio.api.common.ErrorCode;
+import com.dwellio.api.property.PropertyMembershipEntity;
 import com.dwellio.api.property.PropertyMembershipRepository;
+import com.dwellio.api.ticket.TicketService;
 import com.dwellio.api.user.AppUserEntity;
 import com.dwellio.api.user.AppUserRepository;
 import org.springframework.http.HttpStatus;
@@ -21,17 +23,20 @@ public class OrganizationMembershipService {
     private final OrganizationMembershipRepository membershipRepository;
     private final PropertyMembershipRepository propertyMembershipRepository;
     private final AppUserRepository appUserRepository;
+    private final TicketService ticketService;
 
     public OrganizationMembershipService(
             OrganizationAccessService accessService,
             OrganizationMembershipRepository membershipRepository,
             PropertyMembershipRepository propertyMembershipRepository,
-            AppUserRepository appUserRepository
+            AppUserRepository appUserRepository,
+            TicketService ticketService
     ) {
         this.accessService = accessService;
         this.membershipRepository = membershipRepository;
         this.propertyMembershipRepository = propertyMembershipRepository;
         this.appUserRepository = appUserRepository;
+        this.ticketService = ticketService;
     }
 
     @Transactional(readOnly = true)
@@ -112,6 +117,11 @@ public class OrganizationMembershipService {
         }
 
         if ("INACTIVE".equals(request.status()) && "ACTIVE".equals(membership.getStatus())) {
+            List<PropertyMembershipEntity> assignments =
+                    propertyMembershipRepository.findByOrganizationMembershipId(membership.getId());
+            for (PropertyMembershipEntity assignment : assignments) {
+                ticketService.unassignOpenTicketsOnProperty(membership.getUserId(), assignment.getPropertyId());
+            }
             propertyMembershipRepository.deleteByOrganizationMembershipId(membership.getId());
         }
 
