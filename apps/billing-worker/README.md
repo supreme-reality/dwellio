@@ -3,7 +3,8 @@
 Spring Boot worker that **fans out** monthly `billing_run` / `billing_run_item` rows for active stays.
 
 - Core logic: `com.dwellio.api.billing.BillingFanOutService`
-- Does **not** create invoices (see `apps/invoice-worker`)
+- After enqueue, publishes `InvoiceJob` via `InvoiceJobPublisher` (no-op locally; SQS later)
+- Does **not** create invoices (see `apps/invoice-worker` poller)
 - Local/test trigger: `POST /api/v1/internal/billing/fan-out` (API profile `local`/`test` only)
 - Production: EventBridge → Billing Trigger SQS → this worker (SQS listener TBD with Terraform)
 
