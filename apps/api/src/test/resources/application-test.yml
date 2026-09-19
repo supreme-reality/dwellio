@@ -12,3 +12,6 @@ dwellio:
     audience: https://api.dwellio.local
   razorpay:
     webhook-secret: test-razorpay-webhook-secret
+  storage:
+    type: memory
+    bucket: dwellio-documents-test
