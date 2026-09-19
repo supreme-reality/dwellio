@@ -24,3 +24,7 @@ dependencies {
 springBoot {
     mainClass.set("com.dwellio.api.DwellioApiApplication")
 }
+
+tasks.named<Jar>("jar") {
+    enabled = true
+}
