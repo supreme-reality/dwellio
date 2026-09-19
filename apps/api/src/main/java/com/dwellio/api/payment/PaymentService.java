@@ -204,7 +204,7 @@ public class PaymentService {
      * Unpaid exist but sum ≠ amount → reject (no partials).
      * When {@code user} is non-null, each invoice property must be mutable by that user.
      */
-    List<PaymentInvoiceEntity> settleUnpaidForPayment(PaymentEntity payment, AppUserEntity user) {
+    public List<PaymentInvoiceEntity> settleUnpaidForPayment(PaymentEntity payment, AppUserEntity user) {
         if (payment.getTenancyId() == null) {
             return List.of();
         }
