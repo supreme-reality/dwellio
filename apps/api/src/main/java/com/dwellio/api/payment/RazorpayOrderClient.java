@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.util.Map;
 
 /**
- * Creates Razorpay Orders for Checkout. Stubbed when credentials are absent (local/test).
+ * Creates Razorpay Orders for Checkout. Stubbed when credentials are absent and stubbing is allowed.
  */
 public interface RazorpayOrderClient {
 

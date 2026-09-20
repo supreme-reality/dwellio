@@ -16,6 +16,12 @@ public class RazorpayProperties {
     /** API secret for Orders API. Empty → stub orders (local/test). */
     private String keySecret = "";
 
+    /**
+     * When true (tests/local default), blank credentials create a fake Checkout order.
+     * AWS profile disables this so RAZORPAY cannot silently succeed without keys.
+     */
+    private boolean allowStub = true;
+
     public String getWebhookSecret() {
         return webhookSecret;
     }
@@ -38,5 +44,13 @@ public class RazorpayProperties {
 
     public void setKeySecret(String keySecret) {
         this.keySecret = keySecret == null ? "" : keySecret;
+    }
+
+    public boolean isAllowStub() {
+        return allowStub;
+    }
+
+    public void setAllowStub(boolean allowStub) {
+        this.allowStub = allowStub;
     }
 }

@@ -27,6 +27,12 @@ springBoot {
     mainClass.set("com.dwellio.api.DwellioApiApplication")
 }
 
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    if (System.getenv("SPRING_PROFILES_ACTIVE").isNullOrBlank()) {
+        systemProperty("spring.profiles.active", "local")
+    }
+}
+
 tasks.named<Jar>("jar") {
     enabled = true
 }

@@ -1,0 +1,4 @@
+# ECS sets SPRING_PROFILES_ACTIVE=aws. Do not fake Checkout orders in hosted envs.
+dwellio:
+  razorpay:
+    allow-stub: false

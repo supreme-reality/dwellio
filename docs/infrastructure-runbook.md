@@ -150,11 +150,11 @@ Terraform creates secret **stubs** (names/ARNs). Sensitive values are set out-of
 |---|---|---|
 | `{prefix}/db` | App DB connection hints | `username` → `SPRING_DATASOURCE_USERNAME` |
 | `rds!cluster-…` (RDS-managed) | Aurora master password | `password` → `SPRING_DATASOURCE_PASSWORD` |
-| `{prefix}/app` | App config | `AUTH0_ISSUER_URI`, `AUTH0_AUDIENCE` |
+| `{prefix}/app` | App config | `AUTH0_ISSUER_URI`, `AUTH0_AUDIENCE`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET` |
 
 ECS also sets non-secret env: `SPRING_DATASOURCE_URL` (Aurora JDBC), `DWELLIO_DOCUMENTS_BUCKET`, `DWELLIO_S3_REGION`, and clears MinIO-oriented S3 endpoint/keys so the **task role** is used for S3.
 
-Ensure `{prefix}/app` has real Auth0 issuer + audience before the API can finish JWT setup.
+Ensure `{prefix}/app` has real Auth0 issuer + audience before the API can finish JWT setup. Add Razorpay key id, key secret, and webhook secret before RAZORPAY checkout can create live orders (empty values make hosted `/move-ins/{id}/payment` with `RAZORPAY` fail instead of recording cash).
 
 ---
 
