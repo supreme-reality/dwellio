@@ -38,3 +38,7 @@ Open [http://localhost:3000](http://localhost:3000) → Log in. Signed-in users 
 ```bash
 npm run build
 ```
+
+## Vercel
+
+Production/preview deploys use **Vercel Git integration** (root directory `apps/web`). See [`docs/vercel-deploy.md`](../../docs/vercel-deploy.md).

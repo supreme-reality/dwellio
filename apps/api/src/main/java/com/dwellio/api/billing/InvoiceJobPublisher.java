@@ -4,7 +4,7 @@ import java.util.List;
 
 /**
  * Publishes per-stay invoice jobs after fan-out.
- * Local/MVP: no-op — invoice-worker polls PENDING items.
+ * Local/MVP: no-op — worker (WORKER_ROLE=invoice) polls PENDING items.
  * Later: SQS publisher with the same {@link InvoiceJob} payload.
  */
 public interface InvoiceJobPublisher {
