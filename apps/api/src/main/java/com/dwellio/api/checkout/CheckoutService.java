@@ -12,6 +12,8 @@ import com.dwellio.api.invoice.InvoiceRepository;
 import com.dwellio.api.payment.PaymentEntity;
 import com.dwellio.api.payment.PaymentRepository;
 import com.dwellio.api.payment.PaymentService;
+import com.dwellio.api.payment.RazorpayCheckoutResponse;
+import com.dwellio.api.payment.RazorpayOrderClient;
 import com.dwellio.api.property.PropertyAccessService;
 import com.dwellio.api.property.PropertyEntity;
 import com.dwellio.api.rent.RentConfigService;
@@ -40,6 +42,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -60,6 +65,9 @@ public class CheckoutService {
     private final ServiceChargeRepository chargeRepository;
     private final ServiceCatalogRepository serviceCatalogRepository;
     private final ServiceConfigRepository serviceConfigRepository;
+    private final RazorpayOrderClient razorpayOrderClient;
+
+    private static final Set<String> COLLECT_METHODS = Set.of("CASH", "BANK_TRANSFER", "RAZORPAY");
 
     public CheckoutService(
             TenancyRepository tenancyRepository,
@@ -76,7 +84,8 @@ public class CheckoutService {
             ServiceEnrollmentRepository enrollmentRepository,
             ServiceChargeRepository chargeRepository,
             ServiceCatalogRepository serviceCatalogRepository,
-            ServiceConfigRepository serviceConfigRepository
+            ServiceConfigRepository serviceConfigRepository,
+            RazorpayOrderClient razorpayOrderClient
     ) {
         this.tenancyRepository = tenancyRepository;
         this.occupancyRepository = occupancyRepository;
@@ -93,6 +102,7 @@ public class CheckoutService {
         this.chargeRepository = chargeRepository;
         this.serviceCatalogRepository = serviceCatalogRepository;
         this.serviceConfigRepository = serviceConfigRepository;
+        this.razorpayOrderClient = razorpayOrderClient;
     }
 
     @Transactional(readOnly = true)
@@ -111,12 +121,42 @@ public class CheckoutService {
 
         SettlementMath math = computeMath(user, ctx, request.damagesAmount(), request.manualChargesAmount());
         boolean leaveReceivable = Boolean.TRUE.equals(request.leaveReceivable());
-        if (math.netReceivable().compareTo(BigDecimal.ZERO) > 0 && !leaveReceivable) {
-            throw new ApiException(
-                    ErrorCode.VALIDATION_FAILED,
-                    HttpStatus.UNPROCESSABLE_ENTITY,
-                    "leaveReceivable must be true when netReceivable > 0"
-            );
+        String paymentMethod = blankToNull(request.paymentMethod());
+        if (paymentMethod != null) {
+            paymentMethod = paymentMethod.toUpperCase(Locale.ROOT);
+        }
+        boolean collecting = paymentMethod != null;
+
+        if (math.netReceivable().compareTo(BigDecimal.ZERO) > 0) {
+            if (leaveReceivable && collecting) {
+                throw new ApiException(
+                        ErrorCode.VALIDATION_FAILED,
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Cannot leave receivable unpaid and collect payment"
+                );
+            }
+            if (!leaveReceivable && !collecting) {
+                throw new ApiException(
+                        ErrorCode.VALIDATION_FAILED,
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "leaveReceivable must be true when netReceivable > 0"
+                );
+            }
+            if (collecting && !COLLECT_METHODS.contains(paymentMethod)) {
+                throw new ApiException(
+                        ErrorCode.VALIDATION_FAILED,
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Unsupported payment method"
+                );
+            }
+            if ("BANK_TRANSFER".equals(paymentMethod)
+                    && (request.bankTransferReference() == null || request.bankTransferReference().isBlank())) {
+                throw new ApiException(
+                        ErrorCode.VALIDATION_FAILED,
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Bank transfer reference is required"
+                );
+            }
         }
 
         Instant now = Instant.now();
@@ -156,16 +196,18 @@ public class CheckoutService {
             ));
         }
 
-        // Clear invoice obligations at checkout: one confirmed payment for full owed (deposit + any leaveReceivable).
-        // Snapshot.netReceivable remains the true cash still owed by the tenant.
-        BigDecimal owed = math.totalReceivable();
-        if (owed.compareTo(BigDecimal.ZERO) > 0) {
+        RazorpayCheckoutResponse razorpay = null;
+        if (collecting && math.netReceivable().compareTo(BigDecimal.ZERO) > 0) {
+            razorpay = collectNetReceivable(user, ctx, request, math, paymentMethod, now);
+        } else if (math.totalReceivable().compareTo(BigDecimal.ZERO) > 0) {
+            // Deposit covers all, or unpaid finish: one confirmed CASH row for full owed.
+            // Snapshot.netReceivable remains the true cash still owed when leaveReceivable.
             PaymentEntity settlementPayment = paymentRepository.save(new PaymentEntity(
                     UUID.randomUUID(),
                     ctx.property().getOrganizationId(),
                     ctx.tenancy().getId(),
                     "CASH",
-                    owed,
+                    math.totalReceivable(),
                     ctx.property().getDefaultCurrency(),
                     "CONFIRMED",
                     "CHECKOUT_SETTLEMENT:" + settlementId,
@@ -204,8 +246,96 @@ public class CheckoutService {
                 snapshot.getTotalReceivable(),
                 snapshot.getNetReceivable(),
                 snapshot.getRefundDue(),
-                snapshot.getCurrency()
+                snapshot.getCurrency(),
+                razorpay
         );
+    }
+
+    private RazorpayCheckoutResponse collectNetReceivable(
+            AppUserEntity user,
+            CheckoutContext ctx,
+            CheckoutConfirmRequest request,
+            SettlementMath math,
+            String paymentMethod,
+            Instant now
+    ) {
+        String currency = ctx.property().getDefaultCurrency();
+        String idempotencyKey = blankToNull(request.idempotencyKey());
+
+        if ("RAZORPAY".equals(paymentMethod)) {
+            if (idempotencyKey != null) {
+                paymentRepository.findByIdempotencyKey(idempotencyKey).ifPresent(existing -> {
+                    throw new ApiException(
+                            ErrorCode.CONFLICT,
+                            HttpStatus.CONFLICT,
+                            "Idempotency key already used",
+                            Map.of("paymentId", existing.getId().toString())
+                    );
+                });
+            }
+
+            UUID paymentId = UUID.randomUUID();
+            RazorpayOrderClient.CreatedOrder order = razorpayOrderClient.createOrder(
+                    math.netReceivable(),
+                    currency,
+                    "chk-" + paymentId.toString().replace("-", ""),
+                    Map.of("dwellioPaymentId", paymentId.toString())
+            );
+            paymentRepository.save(new PaymentEntity(
+                    paymentId,
+                    ctx.property().getOrganizationId(),
+                    ctx.tenancy().getId(),
+                    "RAZORPAY",
+                    math.netReceivable(),
+                    currency,
+                    "PENDING",
+                    order.orderId(),
+                    null,
+                    idempotencyKey,
+                    null,
+                    null,
+                    now,
+                    now
+            ));
+            return new RazorpayCheckoutResponse(order.keyId(), order.orderId(), math.netReceivable(), currency);
+        }
+
+        if (idempotencyKey != null) {
+            paymentRepository.findByIdempotencyKey(idempotencyKey).ifPresent(existing -> {
+                throw new ApiException(
+                        ErrorCode.CONFLICT,
+                        HttpStatus.CONFLICT,
+                        "Idempotency key already used",
+                        Map.of("paymentId", existing.getId().toString())
+                );
+            });
+        }
+
+        PaymentEntity collected = paymentRepository.save(new PaymentEntity(
+                UUID.randomUUID(),
+                ctx.property().getOrganizationId(),
+                ctx.tenancy().getId(),
+                paymentMethod,
+                math.netReceivable(),
+                currency,
+                "CONFIRMED",
+                null,
+                blankToNull(request.bankTransferReference()),
+                idempotencyKey,
+                null,
+                now,
+                now,
+                now
+        ));
+        paymentService.settleUnpaidForPayment(collected, user);
+        return null;
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 
     @Transactional(readOnly = true)

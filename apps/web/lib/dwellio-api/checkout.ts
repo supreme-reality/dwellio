@@ -32,6 +32,12 @@ export type CheckoutConfirm = {
   netReceivable: number | string;
   refundDue: number | string;
   currency: string;
+  razorpay?: {
+    keyId: string;
+    orderId: string;
+    amount: number | string;
+    currency: string;
+  } | null;
 };
 
 export type Settlement = {
@@ -75,6 +81,9 @@ export function confirmCheckout(
     damagesAmount?: number;
     manualChargesAmount?: number;
     leaveReceivable?: boolean;
+    paymentMethod?: "CASH" | "BANK_TRANSFER" | "RAZORPAY";
+    bankTransferReference?: string;
+    idempotencyKey?: string;
   },
 ) {
   return apiFetch<CheckoutConfirm>("/api/v1/checkout", {

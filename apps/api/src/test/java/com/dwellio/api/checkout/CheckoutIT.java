@@ -190,6 +190,93 @@ class CheckoutIT {
     }
 
     @Test
+    void confirmWithCashPaymentWhenNetDue_closesStay() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStay(ownerToken, "0.00");
+
+        mockMvc.perform(post("/api/v1/checkout")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tenancyId":"%s",
+                                  "damagesAmount":8000.00,
+                                  "paymentMethod":"CASH"
+                                }
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.netReceivable").value(3000.00))
+                .andExpect(jsonPath("$.refundDue").value(0.00))
+                .andExpect(jsonPath("$.razorpay").doesNotExist());
+
+        mockMvc.perform(get("/api/v1/tenancies/" + fx.tenancyId)
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CHECKED_OUT"));
+    }
+
+    @Test
+    void confirmWithRazorpayWhenNetDue_returnsOrder_andWebhookSettles() throws Exception {
+        String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
+        Stay fx = seedActiveStay(ownerToken, "0.00");
+
+        MvcResult confirm = mockMvc.perform(post("/api/v1/checkout")
+                        .header("Authorization", "Bearer " + ownerToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "tenancyId":"%s",
+                                  "damagesAmount":8000.00,
+                                  "paymentMethod":"RAZORPAY"
+                                }
+                                """.formatted(fx.tenancyId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.netReceivable").value(3000.00))
+                .andExpect(jsonPath("$.razorpay.orderId").isNotEmpty())
+                .andExpect(jsonPath("$.razorpay.keyId").isNotEmpty())
+                .andExpect(jsonPath("$.razorpay.amount").value(3000.00))
+                .andExpect(jsonPath("$.razorpay.currency").value("INR"))
+                .andReturn();
+
+        mockMvc.perform(get("/api/v1/tenancies/" + fx.tenancyId)
+                        .header("Authorization", "Bearer " + ownerToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CHECKED_OUT"));
+
+        String orderId = com.jayway.jsonpath.JsonPath.read(
+                confirm.getResponse().getContentAsString(),
+                "$.razorpay.orderId"
+        );
+        String razorpayPaymentId = "pay_" + UUID.randomUUID().toString().replace("-", "").substring(0, 14);
+        String body = """
+                {
+                  "event":"payment.captured",
+                  "payload":{
+                    "payment":{
+                      "entity":{
+                        "id":"%s",
+                        "order_id":"%s",
+                        "status":"captured",
+                        "amount":300000,
+                        "currency":"INR"
+                      }
+                    }
+                  }
+                }
+                """.formatted(razorpayPaymentId, orderId);
+        String signature = hmac("test-razorpay-webhook-secret", body);
+
+        mockMvc.perform(post("/api/v1/webhooks/razorpay")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Razorpay-Signature", signature)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CONFIRMED"))
+                .andExpect(jsonPath("$.settlements").isArray())
+                .andExpect(jsonPath("$.settlements.length()").value(1));
+    }
+
+    @Test
     void confirmWhenDepositCoversAll_setsRefundDue_andEndsEnrollments() throws Exception {
         String ownerToken = mintToken("owner-" + UUID.randomUUID() + "@example.com", "Owner");
         Stay fx = seedActiveStayWithService(ownerToken, "0.00");
@@ -435,6 +522,17 @@ class CheckoutIT {
     }
 
     private record Stay(String propertyId, String bedId, String tenancyId) {
+    }
+
+    private static String hmac(String secret, String body) throws Exception {
+        javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA256");
+        mac.init(new javax.crypto.spec.SecretKeySpec(
+                secret.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                "HmacSHA256"
+        ));
+        return java.util.HexFormat.of().formatHex(
+                mac.doFinal(body.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+        );
     }
 
     private static String mintToken(String email, String name) throws Exception {
