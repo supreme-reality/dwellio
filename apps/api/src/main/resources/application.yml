@@ -38,6 +38,7 @@ dwellio:
     webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
     key-id: ${RAZORPAY_KEY_ID:}
     key-secret: ${RAZORPAY_KEY_SECRET:}
+    allow-stub: ${RAZORPAY_ALLOW_STUB:true}
   storage:
     type: ${DWELLIO_STORAGE_TYPE:s3}
     bucket: ${DWELLIO_DOCUMENTS_BUCKET:dwellio-documents}

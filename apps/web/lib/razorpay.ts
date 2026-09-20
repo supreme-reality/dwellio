@@ -38,7 +38,7 @@ export async function openRazorpayCheckout(
 
   const key =
     checkout.keyId || process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
-  if (!key) {
+  if (!key || key === "rzp_test_local") {
     throw new Error("Razorpay key is not configured");
   }
 

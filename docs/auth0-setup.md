@@ -1,36 +1,45 @@
 # Auth0 setup for Dwellio
 
-Manual checklist for local DEV. Org roles live in **our DB**, not Auth0 roles.
+Manual checklist. Org roles live in **our DB**, not Auth0 roles.
+
+One Auth0 **tenant** is enough for MVP. Split **Regular Web Applications** and **APIs (audiences)** per environment. Vercel wiring: [`docs/vercel-deploy.md`](vercel-deploy.md).
 
 ## 1. Tenant
 
 1. Sign in at [Auth0 Dashboard](https://manage.auth0.com/).
 2. Create a tenant (or use an existing one).
-3. Note the **Domain** (e.g. `your-tenant.us.auth0.com`).
+3. Note the **Domain** (e.g. `your-tenant.us.auth0.com`) — same `AUTH0_DOMAIN` / issuer for local, DEV, and PROD.
 
-## 2. API (resource server)
+## 2. APIs (resource servers / audiences)
 
-1. **Applications → APIs → Create API**
-2. Name: `Dwellio API`
-3. Identifier (audience): `https://api.dwellio.local`  
-   (keep this exact value in local configs unless you deliberately change all envs)
-4. Signing Algorithm: **RS256**
-5. Save. Leave default scopes unless you add custom ones later.
+Create **two** APIs (plus optional local). Identifier = `AUTH0_AUDIENCE` / Spring `dwellio.auth0.audience`.
 
-## 3. Regular Web Application
+| Auth0 API name | Identifier (audience) | Used by |
+|---|---|---|
+| `Dwellio API Dev` | `https://api-dev.vikranthreddy.com` | `app-dev` + `api-dev` (+ local if desired) |
+| `Dwellio API` (Prod) | `https://api.vikranthreddy.com` | `app` + `api` |
+| (optional local) | `https://api.dwellio.local` | localhost only |
 
-1. **Applications → Applications → Create Application**
-2. Name: `Dwellio Web`
-3. Type: **Regular Web Applications**
-4. Technology: Next.js (optional)
+Signing Algorithm: **RS256**. Leave default scopes unless you add custom ones later.
 
-### Application settings
+Audience is the API **Identifier**, not the web hostname (`app` / `app-dev`).
 
-| Setting | Local value |
+## 3. Regular Web Applications
+
+Create **two** apps (type **Regular Web Applications**, not SPA — Next.js Auth0 SDK needs a client secret).
+
+| Auth0 app | Callbacks / logout / web origins |
 |---|---|
-| Allowed Callback URLs | `http://localhost:3000/auth/callback` |
-| Allowed Logout URLs | `http://localhost:3000` |
-| Allowed Web Origins | `http://localhost:3000` |
+| `Dwellio Web Dev` | `https://app-dev.vikranthreddy.com` (+ optional `http://localhost:3000`) |
+| `Dwellio Web Prod` | `https://app.vikranthreddy.com` only (no localhost) |
+
+Callback path for SDK v4: `/auth/callback` (not `/api/auth/callback`).
+
+| Setting | Dev example |
+|---|---|
+| Allowed Callback URLs | `https://app-dev.vikranthreddy.com/auth/callback` (and localhost if needed) |
+| Allowed Logout URLs | `https://app-dev.vikranthreddy.com` |
+| Allowed Web Origins | `https://app-dev.vikranthreddy.com` |
 
 Enable **Authorization Code** and **Refresh Token** grant types (default for Regular Web).
 
@@ -38,16 +47,21 @@ Enable **Authorization Code** and **Refresh Token** grant types (default for Reg
 
 | Auth0 field | Used as |
 |---|---|
-| Domain | Issuer base / `AUTH0_ISSUER_BASE_URL` / Spring `issuer-uri` |
-| Client ID | `AUTH0_CLIENT_ID` |
-| Client Secret | `AUTH0_CLIENT_SECRET` |
-| API Identifier | Audience (`AUTH0_AUDIENCE` / Spring audience) |
+| Domain | `AUTH0_DOMAIN` / Spring `issuer-uri` (same tenant) |
+| Client ID | `AUTH0_CLIENT_ID` (per web app) |
+| Client Secret | `AUTH0_CLIENT_SECRET` (per web app) |
+| API Identifier | `AUTH0_AUDIENCE` (per API / env) |
 
-## 4. Authorize the web app for the API
+`AUTH0_SECRET` is **not** from Auth0 — generate with `openssl rand -hex 32` per deploy env (local / Preview / Production).
 
-1. Open the **Dwellio Web** application.
-2. **APIs** tab → authorize **Dwellio API** (audience `https://api.dwellio.local`).
-3. When requesting tokens from the web app, pass `audience=https://api.dwellio.local` so the access token is a JWT for the API (not an opaque Auth0 token).
+## 4. Authorize each web app for its API
+
+| Web app | Authorize API |
+|---|---|
+| `Dwellio Web Dev` | `Dwellio API Dev` (`https://api-dev.vikranthreddy.com`) |
+| `Dwellio Web Prod` | Prod API (`https://api.vikranthreddy.com`) |
+
+Do not cross-authorize unless intentional. The web app must request tokens with the matching `audience` so the access token is a JWT for that API (not an opaque Auth0 token).
 
 ## 5. Optional: put `email` + `name` on the access token
 
@@ -96,29 +110,42 @@ openssl rand -hex 32
 | Auth0 domain | `AUTH0_DOMAIN=YOUR_TENANT.us.auth0.com` | `spring.security.oauth2.resourceserver.jwt.issuer-uri` = `https://YOUR_TENANT.us.auth0.com/` |
 | Client ID | `AUTH0_CLIENT_ID` | — |
 | Client Secret | `AUTH0_CLIENT_SECRET` | — |
-| API audience | `AUTH0_AUDIENCE=https://api.dwellio.local` | `dwellio.auth0.audience` |
+| API audience | `AUTH0_AUDIENCE` (local or DEV identifier) | `dwellio.auth0.audience` / `AUTH0_AUDIENCE` |
 | API base for browser | `NEXT_PUBLIC_API_BASE_URL=http://localhost:8080` | — |
+| Razorpay Checkout (public) | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | `dwellio.razorpay.key-id` / `RAZORPAY_KEY_ID` |
+| Razorpay secret | — (do not put in web) | `dwellio.razorpay.key-secret` / `RAZORPAY_KEY_SECRET` |
+| Razorpay webhook | — | `dwellio.razorpay.webhook-secret` / `RAZORPAY_WEBHOOK_SECRET` |
 
 Auth0 callback for SDK v4: `http://localhost:3000/auth/callback` (not `/api/auth/callback`).
 
-Issuer URI must match token `iss` (trailing slash is fine; Spring normalizes).
+Issuer URI must match token `iss` (trailing slash is fine; Spring normalizes). Prefer pointing local at the **DEV** audience if you exercise `api-dev` from a laptop tunnel; otherwise keep `https://api.dwellio.local` only when the local API is configured for it.
 
-## 7. Verify (human)
+## 7. Hosted DEV / PROD (Vercel + ECS)
 
-1. Use Auth0 **Test** / login via the web app once Task 6 is wired.
+| | DEV | PROD |
+|---|---|---|
+| Web | `https://app-dev.vikranthreddy.com` | `https://app.vikranthreddy.com` |
+| API | `https://api-dev.vikranthreddy.com` | `https://api.vikranthreddy.com` |
+| Auth0 web app | `Dwellio Web Dev` | `Dwellio Web Prod` |
+| Audience | `https://api-dev.vikranthreddy.com` | `https://api.vikranthreddy.com` |
+| Vercel env | Preview (or dedicated DEV project) | Production |
+| ECS / API secrets | DEV audience + same issuer | PROD audience + same issuer |
+
+Mirror Client ID/Secret, Audience, and `APP_BASE_URL` in Vercel; mirror Audience + issuer in API Secrets Manager / task env. Details: [`docs/vercel-deploy.md`](vercel-deploy.md).
+
+## 8. Verify (human)
+
+1. Log in via local, `app-dev`, or `app` as appropriate.
 2. Capture an access token (browser Network tab on `/api/v1/me`, or Auth0 debugger).
 3. Paste into [jwt.io](https://jwt.io):
-   - `aud` includes `https://api.dwellio.local` (or your chosen audience)
+   - `aud` includes the expected audience for that env
    - `iss` matches your tenant issuer
    - Prefer presence of `email` (and `name`) after the optional Action
+4. Confirm a DEV token is rejected by PROD API (and vice versa) when audiences are split.
 
 Without the optional Action, Auth0 access tokens often omit `email`. `GET /api/v1/me` requires an email claim (or a namespaced claim ending in `/email`) and returns 401 if missing.
 
 ```bash
-# After Task 5 is implemented:
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/v1/me
+# or: https://api-dev.vikranthreddy.com/api/v1/me
 ```
-
-## Production later
-
-When `app.<your-domain>` is live (Phase infra), update Auth0 Allowed Callback / Logout / Web Origins to the HTTPS URLs and mirror the same Domain, Client, Audience values in Vercel + ECS secrets.

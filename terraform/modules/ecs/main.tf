@@ -259,6 +259,18 @@ resource "aws_ecs_task_definition" "api" {
           name      = "AUTH0_AUDIENCE"
           valueFrom = "${var.app_secret_arn}:AUTH0_AUDIENCE::"
         },
+        {
+          name      = "RAZORPAY_KEY_ID"
+          valueFrom = "${var.app_secret_arn}:RAZORPAY_KEY_ID::"
+        },
+        {
+          name      = "RAZORPAY_KEY_SECRET"
+          valueFrom = "${var.app_secret_arn}:RAZORPAY_KEY_SECRET::"
+        },
+        {
+          name      = "RAZORPAY_WEBHOOK_SECRET"
+          valueFrom = "${var.app_secret_arn}:RAZORPAY_WEBHOOK_SECRET::"
+        },
       ]
       logConfiguration = {
         logDriver = "awslogs"

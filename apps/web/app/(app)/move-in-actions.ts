@@ -91,7 +91,15 @@ export async function payMoveInAction(formData: FormData) {
     idempotencyKey: crypto.randomUUID(),
   });
 
-  if (paymentMethod === "RAZORPAY" && result.razorpay) {
+  if (paymentMethod === "RAZORPAY") {
+    if (!result.razorpay?.orderId || !result.razorpay?.keyId) {
+      throw new Error("Razorpay checkout was not returned. Payment was not recorded.");
+    }
+    if (result.razorpay.keyId === "rzp_test_local") {
+      throw new Error(
+        "Razorpay is not configured on the API. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
+      );
+    }
     return {
       mode: "razorpay" as const,
       result,

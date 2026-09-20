@@ -27,7 +27,7 @@ Requires Postgres (see Docker below).
 
 ```bash
 docker compose up -d
-./gradlew :apps:api:bootRun
+SPRING_PROFILES_ACTIVE=local ./gradlew :apps:api:bootRun
 curl -s http://localhost:8080/actuator/health
 ```
 

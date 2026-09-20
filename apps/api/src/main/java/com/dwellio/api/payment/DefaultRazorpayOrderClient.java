@@ -38,6 +38,13 @@ public class DefaultRazorpayOrderClient implements RazorpayOrderClient {
         String keySecret = properties.getKeySecret();
 
         if (keyId.isBlank() || keySecret.isBlank()) {
+            if (!properties.isAllowStub()) {
+                throw new ApiException(
+                        ErrorCode.VALIDATION_FAILED,
+                        HttpStatus.UNPROCESSABLE_ENTITY,
+                        "Razorpay is not configured"
+                );
+            }
             // Local/test: deterministic fake order without calling Razorpay.
             return new CreatedOrder("order_test_" + UUID.randomUUID().toString().replace("-", ""), keyId.isBlank() ? "rzp_test_local" : keyId, amountPaise, currency);
         }

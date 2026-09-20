@@ -68,9 +68,12 @@ resource "aws_secretsmanager_secret" "app" {
 resource "aws_secretsmanager_secret_version" "app" {
   secret_id = aws_secretsmanager_secret.app.id
   secret_string = jsonencode({
-    AUTH0_ISSUER_URI = ""
-    AUTH0_AUDIENCE   = ""
-    note             = "Replace empty values out-of-band; do not store production secrets in git"
+    AUTH0_ISSUER_URI         = ""
+    AUTH0_AUDIENCE           = ""
+    RAZORPAY_KEY_ID          = ""
+    RAZORPAY_KEY_SECRET      = ""
+    RAZORPAY_WEBHOOK_SECRET  = ""
+    note                     = "Replace empty values out-of-band; do not store production secrets in git"
   })
 
   lifecycle {
