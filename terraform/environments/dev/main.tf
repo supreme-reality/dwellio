@@ -29,24 +29,6 @@ module "alb" {
   tags                  = local.tags
 }
 
-module "ecs" {
-  source = "../../modules/ecs"
-
-  name_prefix              = var.name_prefix
-  aws_region               = var.aws_region
-  app_subnet_ids           = module.vpc.app_subnet_ids
-  api_security_group_id    = module.vpc.api_security_group_id
-  worker_security_group_id = module.vpc.worker_security_group_id
-  target_group_arn         = module.alb.target_group_arn
-  api_port                 = var.api_port
-  task_cpu                 = var.task_cpu
-  task_memory              = var.task_memory
-  api_desired_count        = var.api_desired_count
-  billing_desired_count    = var.billing_desired_count
-  invoice_desired_count    = var.invoice_desired_count
-  tags                     = local.tags
-}
-
 module "aurora" {
   source = "../../modules/aurora"
 
@@ -75,30 +57,6 @@ module "sqs" {
   tags                    = local.tags
 }
 
-module "iam" {
-  source = "../../modules/iam"
-
-  name_prefix                 = var.name_prefix
-  aws_region                  = var.aws_region
-  github_repository           = var.github_repository
-  create_github_oidc_provider = var.create_github_oidc_provider
-  api_ecr_repository_arn      = module.ecs.api_ecr_repository_arn
-  worker_ecr_repository_arn   = module.ecs.worker_ecr_repository_arn
-  ecs_execution_role_arn      = module.ecs.execution_role_arn
-  ecs_task_role_arn           = module.ecs.task_role_arn
-  tags                        = local.tags
-}
-
-module "monitoring" {
-  source = "../../modules/monitoring"
-
-  name_prefix               = var.name_prefix
-  alb_arn_suffix            = module.alb.alb_arn_suffix
-  ecs_cluster_name          = module.ecs.cluster_name
-  aurora_cluster_identifier = module.aurora.cluster_id
-  tags                      = local.tags
-}
-
 # App config secret stub — values set out-of-band (never commit secrets).
 resource "aws_secretsmanager_secret" "app" {
   name                    = "${var.name_prefix}/app"
@@ -115,4 +73,57 @@ resource "aws_secretsmanager_secret_version" "app" {
     AUTH0_AUDIENCE   = ""
     note             = "Replace empty values out-of-band; do not store production secrets in git"
   })
+
+  lifecycle {
+    ignore_changes = [secret_string]
+  }
+}
+
+module "ecs" {
+  source = "../../modules/ecs"
+
+  name_prefix              = var.name_prefix
+  aws_region               = var.aws_region
+  app_subnet_ids           = module.vpc.app_subnet_ids
+  api_security_group_id    = module.vpc.api_security_group_id
+  worker_security_group_id = module.vpc.worker_security_group_id
+  target_group_arn         = module.alb.target_group_arn
+  api_port                 = var.api_port
+  task_cpu                 = var.task_cpu
+  task_memory              = var.task_memory
+  api_desired_count        = var.api_desired_count
+  billing_desired_count    = var.billing_desired_count
+  invoice_desired_count    = var.invoice_desired_count
+  api_image_tag            = var.api_image_tag
+  database_jdbc_url        = "jdbc:postgresql://${module.aurora.cluster_endpoint}:5432/dwellio"
+  db_secret_arn            = module.aurora.app_db_secret_arn
+  db_master_secret_arn     = module.aurora.master_user_secret_arn
+  app_secret_arn           = aws_secretsmanager_secret.app.arn
+  documents_bucket         = module.s3.documents_bucket_id
+  tags                     = local.tags
+}
+
+module "iam" {
+  source = "../../modules/iam"
+
+  name_prefix                 = var.name_prefix
+  aws_region                  = var.aws_region
+  github_repository           = var.github_repository
+  github_oidc_sub_prefix      = var.github_oidc_sub_prefix
+  create_github_oidc_provider = var.create_github_oidc_provider
+  api_ecr_repository_arn      = module.ecs.api_ecr_repository_arn
+  worker_ecr_repository_arn   = module.ecs.worker_ecr_repository_arn
+  ecs_execution_role_arn      = module.ecs.execution_role_arn
+  ecs_task_role_arn           = module.ecs.task_role_arn
+  tags                        = local.tags
+}
+
+module "monitoring" {
+  source = "../../modules/monitoring"
+
+  name_prefix               = var.name_prefix
+  alb_arn_suffix            = module.alb.alb_arn_suffix
+  ecs_cluster_name          = module.ecs.cluster_name
+  aurora_cluster_identifier = module.aurora.cluster_id
+  tags                      = local.tags
 }

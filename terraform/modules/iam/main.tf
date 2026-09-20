@@ -1,6 +1,6 @@
 # Dwellio module: iam
 # GitHub OIDC provider + roles for Terraform plan/apply and ECR/ECS deploy.
-# Trust limited to github_repository (supreme-reality/dwellio).
+# Trust limited via github_oidc_sub_prefix (ID-qualified GitHub OIDC sub).
 
 terraform {
   required_providers {
@@ -15,8 +15,8 @@ data "aws_caller_identity" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
-  # Subject matches any ref in the trusted repo; tighten to main for apply in CI if desired.
-  oidc_sub_repo = "repo:${var.github_repository}:*"
+  # Matches any context (ref / environment) under the trusted repo identity.
+  oidc_sub_repo = "${var.github_oidc_sub_prefix}:*"
 }
 
 resource "aws_iam_openid_connect_provider" "github" {

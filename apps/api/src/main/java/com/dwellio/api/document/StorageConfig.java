@@ -5,6 +5,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -22,9 +24,7 @@ public class StorageConfig {
     S3Client s3Client(StorageProperties properties) {
         var builder = S3Client.builder()
                 .region(Region.of(properties.getRegion()))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(properties.getAccessKey(), properties.getSecretKey())
-                ))
+                .credentialsProvider(credentialsProvider(properties))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(properties.isPathStyle())
                         .build());
@@ -39,9 +39,7 @@ public class StorageConfig {
     S3Presigner s3Presigner(StorageProperties properties) {
         var builder = S3Presigner.builder()
                 .region(Region.of(properties.getRegion()))
-                .credentialsProvider(StaticCredentialsProvider.create(
-                        AwsBasicCredentials.create(properties.getAccessKey(), properties.getSecretKey())
-                ))
+                .credentialsProvider(credentialsProvider(properties))
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(properties.isPathStyle())
                         .build());
@@ -49,5 +47,14 @@ public class StorageConfig {
             builder.endpointOverride(URI.create(properties.getEndpoint()));
         }
         return builder.build();
+    }
+
+    private static AwsCredentialsProvider credentialsProvider(StorageProperties properties) {
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (accessKey != null && !accessKey.isBlank() && secretKey != null && !secretKey.isBlank()) {
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+        }
+        return DefaultCredentialsProvider.create();
     }
 }

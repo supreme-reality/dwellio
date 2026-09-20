@@ -10,9 +10,9 @@ spring:
     resources:
       add-mappings: false
   datasource:
-    url: jdbc:postgresql://localhost:5433/dwellio
-    username: dwellio
-    password: dwellio
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/dwellio}
+    username: ${SPRING_DATASOURCE_USERNAME:dwellio}
+    password: ${SPRING_DATASOURCE_PASSWORD:dwellio}
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: true
