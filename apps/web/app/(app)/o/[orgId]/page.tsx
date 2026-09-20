@@ -1,4 +1,5 @@
 import { createPropertyAction } from "@/app/(app)/actions";
+import { AuthHeader } from "@/components/shell/auth-header";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -17,6 +18,7 @@ export default async function OrganizationHomePage({
   const { orgId } = await params;
   const session = await requireSession();
   const token = await requireAccessToken();
+  const userLabel = session.user.email ?? session.user.name ?? "Signed in";
 
   let error: DwellioApiError | null = null;
   let org = null;
@@ -39,11 +41,14 @@ export default async function OrganizationHomePage({
 
   if (error) {
     return (
-      <main className="mx-auto max-w-lg p-8">
-        <Alert tone="error" requestId={error.requestId}>
-          {error.message}
-        </Alert>
-      </main>
+      <div className="min-h-screen bg-neutral-50">
+        <AuthHeader brandHref={`/o/${orgId}`} userLabel={userLabel} />
+        <main className="mx-auto max-w-lg p-8">
+          <Alert tone="error" requestId={error.requestId}>
+            {error.message}
+          </Alert>
+        </main>
+      </div>
     );
   }
 
@@ -51,24 +56,7 @@ export default async function OrganizationHomePage({
 
   return (
     <div className="min-h-screen bg-neutral-50">
-      <header className="border-b border-neutral-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3">
-          <Link href={`/o/${orgId}`} className="text-xl font-semibold">
-            Dwellio
-          </Link>
-          <div className="flex items-center gap-3 text-sm">
-            <span className="text-neutral-600">
-              {session.user.email ?? session.user.name ?? "Signed in"}
-            </span>
-            <a
-              href="/auth/logout"
-              className="rounded-md border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50"
-            >
-              Log out
-            </a>
-          </div>
-        </div>
-      </header>
+      <AuthHeader brandHref={`/o/${orgId}`} userLabel={userLabel} />
 
       <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
         {organizations.length > 1 ? (
