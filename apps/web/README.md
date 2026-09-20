@@ -41,4 +41,11 @@ npm run build
 
 ## Vercel
 
-Production/preview deploys use **Vercel Git integration** (root directory `apps/web`). See [`docs/vercel-deploy.md`](../../docs/vercel-deploy.md).
+Production/preview deploys use **Vercel Git integration** (root directory `apps/web`).
+
+| Env | Web | API |
+|---|---|---|
+| DEV | `https://app-dev.vikranthreddy.com` | `https://api-dev.vikranthreddy.com` |
+| PROD | `https://app.vikranthreddy.com` | `https://api.vikranthreddy.com` |
+
+See [`docs/vercel-deploy.md`](../../docs/vercel-deploy.md) and [`docs/auth0-setup.md`](../../docs/auth0-setup.md).

@@ -89,6 +89,7 @@ docker build -f apps/worker/Dockerfile -t dwellio-worker .
 
 - Infra: `.github/workflows/terraform.yml` (OIDC → Terraform plan/apply)
 - API/worker: `.github/workflows/api-deploy.yml` (OIDC → ECR → ECS)
-- Web: Vercel Git integration — see [`docs/vercel-deploy.md`](docs/vercel-deploy.md)
+- Web: Vercel Git integration (`app-dev` / `app`) — see [`docs/vercel-deploy.md`](docs/vercel-deploy.md)
+- Auth0 (local + hosted DEV/PROD): [`docs/auth0-setup.md`](docs/auth0-setup.md)
 - Operator guide: [`docs/infrastructure-runbook.md`](docs/infrastructure-runbook.md)
 - Terraform: [`terraform/README.md`](terraform/README.md)

@@ -1,8 +1,12 @@
-# Local state until the S3 state bucket is bootstrapped (see ../../README.md).
-# After bootstrap, replace this file with the S3 backend from backend.s3.example.tf
-# and run: terraform init -migrate-state
+# Remote state: S3 + native lockfile (bucket created one-time via AWS CLI).
+# Bucket: dwellio-terraform-state
+# Key:    dwellio/terraform/dev/terraform.tfstate
 terraform {
-  backend "local" {
-    path = "terraform.tfstate"
+  backend "s3" {
+    bucket       = "dwellio-terraform-state"
+    key          = "dwellio/terraform/dev/terraform.tfstate"
+    region       = "ap-south-1"
+    encrypt      = true
+    use_lockfile = true
   }
 }
