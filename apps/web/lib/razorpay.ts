@@ -30,6 +30,7 @@ function loadRazorpayScript(): Promise<void> {
 export async function openRazorpayCheckout(
   checkout: RazorpayCheckout,
   onSuccess: () => void,
+  description = "Payment",
 ): Promise<void> {
   await loadRazorpayScript();
   if (!window.Razorpay) {
@@ -53,7 +54,7 @@ export async function openRazorpayCheckout(
     amount: amountPaise,
     currency: checkout.currency,
     name: "Dwellio",
-    description: "Move-in payment",
+    description,
     handler: () => onSuccess(),
   });
   rzp.open();

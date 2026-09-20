@@ -5,6 +5,8 @@ import com.dwellio.api.common.ErrorCode;
 import com.dwellio.api.invoice.InvoiceEntity;
 import com.dwellio.api.invoice.InvoiceRepository;
 import com.dwellio.api.property.PropertyAccessService;
+import com.dwellio.api.settlement.SettlementSnapshotEntity;
+import com.dwellio.api.settlement.SettlementSnapshotRepository;
 import com.dwellio.api.tenant.TenancyEntity;
 import com.dwellio.api.tenant.TenancyRepository;
 import com.dwellio.api.user.AppUserEntity;
@@ -31,19 +33,22 @@ public class PaymentService {
     private final InvoiceRepository invoiceRepository;
     private final TenancyRepository tenancyRepository;
     private final PropertyAccessService propertyAccessService;
+    private final SettlementSnapshotRepository settlementSnapshotRepository;
 
     public PaymentService(
             PaymentRepository paymentRepository,
             PaymentInvoiceRepository paymentInvoiceRepository,
             InvoiceRepository invoiceRepository,
             TenancyRepository tenancyRepository,
-            PropertyAccessService propertyAccessService
+            PropertyAccessService propertyAccessService,
+            SettlementSnapshotRepository settlementSnapshotRepository
     ) {
         this.paymentRepository = paymentRepository;
         this.paymentInvoiceRepository = paymentInvoiceRepository;
         this.invoiceRepository = invoiceRepository;
         this.tenancyRepository = tenancyRepository;
         this.propertyAccessService = propertyAccessService;
+        this.settlementSnapshotRepository = settlementSnapshotRepository;
     }
 
     @Transactional
@@ -238,7 +243,10 @@ public class PaymentService {
             ));
         }
 
-        if (payment.getAmount().compareTo(obligationTotal) != 0) {
+        BigDecimal depositCredit = depositCreditForTenancy(payment.getTenancyId());
+        boolean exactMatch = payment.getAmount().compareTo(obligationTotal) == 0;
+        boolean netAfterDeposit = payment.getAmount().add(depositCredit).compareTo(obligationTotal) == 0;
+        if (!exactMatch && !netAfterDeposit) {
             throw new ApiException(
                     ErrorCode.VALIDATION_FAILED,
                     HttpStatus.UNPROCESSABLE_ENTITY,
@@ -251,6 +259,20 @@ public class PaymentService {
         }
 
         return paymentInvoiceRepository.saveAll(rows);
+    }
+
+    /**
+     * After checkout, deposit deduction is already applied on the settlement snapshot.
+     * Collecting {@code netReceivable} is a full payment of remaining cash, not a partial.
+     */
+    private BigDecimal depositCreditForTenancy(UUID tenancyId) {
+        if (tenancyId == null) {
+            return BigDecimal.ZERO.setScale(2, RoundingMode.UNNECESSARY);
+        }
+        return settlementSnapshotRepository.findByTenancyId(tenancyId)
+                .map(SettlementSnapshotEntity::getDepositDeduction)
+                .orElse(BigDecimal.ZERO)
+                .setScale(2, RoundingMode.HALF_UP);
     }
 
     private PaymentEntity requireReadablePayment(AppUserEntity user, UUID paymentId) {

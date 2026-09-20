@@ -61,16 +61,44 @@ export async function confirmCheckoutAction(formData: FormData) {
   const damagesAmount = Number(formData.get("damagesAmount") ?? 0);
   const manualChargesAmount = Number(formData.get("manualChargesAmount") ?? 0);
   const leaveReceivable = String(formData.get("leaveReceivable") ?? "") === "true";
+  const paymentMethodRaw = String(formData.get("paymentMethod") ?? "").trim();
+  const paymentMethod = paymentMethodRaw as "" | "CASH" | "BANK_TRANSFER" | "RAZORPAY";
+  const bankTransferReference = String(
+    formData.get("bankTransferReference") ?? "",
+  ).trim();
   const token = await requireAccessToken();
+  const collecting = !leaveReceivable && (paymentMethod === "CASH"
+    || paymentMethod === "BANK_TRANSFER"
+    || paymentMethod === "RAZORPAY");
   const result = await confirmCheckout(token, {
     tenancyId,
     damagesAmount,
     manualChargesAmount,
     leaveReceivable,
+    paymentMethod: collecting ? paymentMethod : undefined,
+    bankTransferReference:
+      collecting && paymentMethod === "BANK_TRANSFER"
+        ? bankTransferReference
+        : undefined,
+    idempotencyKey: collecting ? crypto.randomUUID() : undefined,
   });
-  redirect(
-    `/o/${orgId}/p/${propertyId}/tenancies/${tenancyId}/checkout/done?settlementId=${result.settlementId}`,
-  );
+  const donePath = `/o/${orgId}/p/${propertyId}/tenancies/${tenancyId}/checkout/done?settlementId=${result.settlementId}`;
+  if (collecting && paymentMethod === "RAZORPAY") {
+    if (!result.razorpay?.orderId || !result.razorpay?.keyId) {
+      throw new Error("Razorpay checkout was not returned. Settlement was created without a pay link.");
+    }
+    if (result.razorpay.keyId === "rzp_test_local") {
+      throw new Error(
+        "Razorpay is not configured on the API. Set RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET.",
+      );
+    }
+    return {
+      mode: "razorpay" as const,
+      razorpay: result.razorpay,
+      donePath,
+    };
+  }
+  redirect(donePath);
 }
 
 export async function refundSettlementAction(formData: FormData) {
